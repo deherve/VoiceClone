@@ -92,4 +92,7 @@ function Assemble([string]$name, [string[]]$exes) {
 $app = Assemble "VoiceClone-$Version-windows-x64" @('VoiceClone.exe', 'voiceclone-server.exe') | Select-Object -Last 1
 if ($SansPublier) { return }
 
-gh release create "v$Version" $app --target main --title "VoiceClone $Version" --notes $notes
+# Notes par fichier : passees en argument, PowerShell 5.1 mange les guillemets des exemples de code.
+$notesFile = Join-Path $env:TEMP "voiceclone-notes-$Version.md"
+[IO.File]::WriteAllText($notesFile, $notes, (New-Object Text.UTF8Encoding $false))
+gh release create "v$Version" $app --target main --title "VoiceClone $Version" --notes-file $notesFile

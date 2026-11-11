@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.png" alt="VoiceClone: local voice cloning / clonage de voix local" width="100%"></p>
+
 # VoiceClone
 
 **[English](#english) · [Français](#français)**

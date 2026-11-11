@@ -1,4 +1,4 @@
-# Publie une version : compile, assemble deux archives autonomes et cree la release GitHub.
+﻿# Publie une version : compile, assemble deux archives autonomes et cree la release GitHub.
 #   .\scripts\release.ps1                  version = celle de crates\app\Cargo.toml ; notes = sa section de CHANGELOG.md
 #   .\scripts\release.ps1 -SansPublier     assemble et controle les archives, sans rien publier
 # Archives (aucune installation, runtimes Visual C++ inclus) :
@@ -78,11 +78,11 @@ function Assemble([string]$name, [string[]]$exes) {
     Copy-Item "$root\vendor\qwentts\LICENSE" "$dir\licences\qwentts.cpp-LICENSE.txt"
     Copy-Item "$root\vendor\qwentts\ggml\LICENSE" "$dir\licences\ggml-LICENSE.txt"
     Set-Content "$dir\README.txt" $readme -Encoding UTF8
-    & "$root\scripts\check-deps.ps1" -Dir $dir
+    & "$root\scripts\check-deps.ps1" -Dir $dir | Out-Host
     if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }
     $zip = "$root\target\dist\$name.zip"
     Compress-Archive -Path "$dir\*" -DestinationPath $zip
-    "{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dir -Recurse -File).Count
+    Write-Host ("{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dir -Recurse -File).Count)
     $zip
 }
 $app = Assemble "VoiceClone-$Version-windows-x64" @('VoiceClone.exe', 'voiceclone-server.exe') | Select-Object -Last 1

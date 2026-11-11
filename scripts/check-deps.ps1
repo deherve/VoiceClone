@@ -1,4 +1,4 @@
-# Controle qu'une version « autonome » tourne sur un Windows vierge : chaque DLL importee par un .exe/.dll du dossier doit
+﻿# Controle qu'une version « autonome » tourne sur un Windows vierge : chaque DLL importee par un .exe/.dll du dossier doit
 # etre dans le dossier, ou faire partie de Windows. Les runtimes Visual C++ ne sont PAS consideres comme presents sur le
 # systeme (une machine neuve n'en a pas forcement) : ils doivent etre fournis dans le dossier.
 #   .\scripts\check-deps.ps1 -Dir target\dist\VoiceClone-0.1.1-windows-x64

@@ -6,6 +6,14 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.7 - 2026-11-11
+
+**English**
+- **A colour per voice**: each voice has its own colour (avatar, tag button, voice label in the list), and the text box repaints every part of the text in the colour of the voice that will speak it. Tags are bold, `[pause]` is grey italic, an unknown tag is underlined in red. Lightness and saturation follow the theme, so the colours stay readable in all four themes.
+
+**Français**
+- **Une couleur par voix** : chaque voix a sa couleur (avatar, bouton de balise, étiquette de voix dans la liste), et la zone de texte repeint chaque partie du texte avec la couleur de la voix qui la dira. Les balises sont en gras, `[pause]` en italique gris, une balise inconnue est soulignée en rouge. La clarté et la saturation suivent le thème : les couleurs restent lisibles dans les quatre thèmes.
+
 ## 0.1.6 - 2026-11-11
 
 **English**

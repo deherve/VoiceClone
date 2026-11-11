@@ -88,7 +88,7 @@ async function loadProfiles() {
   if (!profile()) current = profiles[0]?.id ?? null;
   $('profile-list').replaceChildren(...profiles.map((p) => {
     const pick = el('button', { type: 'button', className: 'profile', onclick: () => { current = p.id; loadProfiles().catch((e) => fail($('status'), e)); } },
-      el('span', { className: 'avatar', textContent: initials(p.name) }),
+      voiceAvatar(p),
       el('span', { className: 'who' },
         el('strong', { textContent: p.name }),
         el('span', { textContent: tp('voice.meta', { lang: langName(p.language), n: p.samples }) })));
@@ -229,6 +229,52 @@ $('file').onchange = async (ev) => {
 };
 
 // ---------------------------------------------------------------- balises : insertion au curseur
+// Chaque voix a sa couleur (teinte fixe selon son numero ; clarte et saturation viennent du theme : --vs, --vl).
+const VOICE_HUES = [205, 335, 140, 275, 28, 172, 52, 95];
+const voiceVar = (p) => (p ? `--h:${VOICE_HUES[(p.id - 1) % VOICE_HUES.length]}` : '');
+function voiceAvatar(p) {
+  const a = el('span', { className: 'avatar vc-bg', textContent: initials(p.name) });
+  a.setAttribute('style', voiceVar(p));
+  return a;
+}
+// Decoupe le texte comme le programme : [pause], [NomDeVoix] (change de voix), reste = texte dit par la voix courante.
+function voiceSpans(text) {
+  const out = [];
+  let cur = profile(), last = 0;
+  const say = (s) => s && out.push({ s, cls: 'vc', p: cur });
+  for (const m of text.matchAll(/\[[^\]\n[]{1,60}\]/g)) {
+    say(text.slice(last, m.index));
+    const name = m[0].slice(1, -1).trim();
+    if (/^pause(\s|$)/i.test(name)) out.push({ s: m[0], cls: 'hl-pause' });
+    else {
+      const v = profiles.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (v) cur = v;
+      out.push(v ? { s: m[0], cls: 'vc hl-tag', p: v } : { s: m[0], cls: 'hl-bad' });
+    }
+    last = m.index + m[0].length;
+  }
+  say(text.slice(last));
+  return out;
+}
+// Le texte est repeint par-dessus la zone de saisie (transparente) avec la couleur de chaque voix.
+function renderHighlight() {
+  const tx = $('text'), hl = $('hl'), cs = getComputedStyle(tx);
+  for (const k of ['font', 'lineHeight', 'letterSpacing', 'textAlign', 'padding', 'borderTopWidth', 'borderTopLeftRadius']) hl.style[k] = cs[k];
+  hl.style.borderStyle = 'solid';
+  hl.style.borderColor = 'transparent';
+  hl.style.width = `${tx.clientWidth + parseFloat(cs.borderLeftWidth) * 2}px`;
+  const spans = voiceSpans(tx.value).map((x) => {
+    const e = el('span', { className: x.cls, textContent: x.s });
+    if (x.p) e.setAttribute('style', voiceVar(x.p));
+    return e;
+  });
+  $('hl-in').replaceChildren(...spans, document.createTextNode(tx.value.endsWith('\n') ? ' ' : ''));
+  $('hl-in').style.transform = `translateY(${-tx.scrollTop}px)`;
+}
+new ResizeObserver(() => renderHighlight()).observe($('text'));
+$('text').addEventListener('scroll', () => { $('hl-in').style.transform = `translateY(${-$('text').scrollTop}px)`; });
+$('text').addEventListener('input', renderHighlight);
+
 function insertTag(tag) {
   const tx = $('text'), a = tx.selectionStart ?? tx.value.length, b = tx.selectionEnd ?? a;
   const before = tx.value.slice(0, a), pad = before && !/\s$/.test(before) ? ' ' : '';
@@ -239,7 +285,8 @@ function insertTag(tag) {
 function renderTags() {
   $('tags').replaceChildren(
     el('button', { type: 'button', className: 'tag pause', textContent: t('tags.pause'), title: t('tags.pause_tip'), onclick: () => insertTag('[pause]') }),
-    ...profiles.map((p) => el('button', { type: 'button', className: 'tag voice', textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) })));
+    ...profiles.map((p) => el('button', { type: 'button', className: 'tag voice vc', style: voiceVar(p), textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) })));
+  renderHighlight();
 }
 
 // ---------------------------------------------------------------- generation
@@ -248,7 +295,7 @@ function updateGo() {
   $('go').disabled = busy || !p || !p.samples || !n;
   $('clear').disabled = !$('text').value;
   $('count').replaceChildren(...(p
-    ? [el('span', { className: 'avatar', textContent: initials(p.name) }), tp('compose.line', { name: p.name, n })]
+    ? [voiceAvatar(p), tp('compose.line', { name: p.name, n })]
     : [t('compose.no_voice')]));
 }
 
@@ -389,7 +436,7 @@ async function loadGenerations() {
         el('div', { className: 'player' }, playButton('generation', g.id, st), bars, el('span', { className: 'dur', textContent: fmt(g.duration_sec) })),
         el('div', { className: 'meta' },
           el('span', { className: 'new-badge', textContent: t('gen.new') }),
-          el('span', { className: 'voice', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }),
+          el('span', { className: 'voice vc', style: voiceVar(profiles.find((p) => p.name === g.profile)), textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));
   }));
@@ -405,6 +452,7 @@ const THEMES = [
   { id: 'conversation', colors: ['#f1f2f7', '#ffffff', '#4338ca'] }
 ];
 function applyTheme(id) {
+  requestAnimationFrame(() => renderHighlight());
   if (id === 'nocturne') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = id;
   try { localStorage.setItem('voiceclone-theme', id); } catch { /* choix valable pour cette session seulement */ }

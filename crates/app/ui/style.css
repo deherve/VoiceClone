@@ -279,3 +279,43 @@ progress { width: 160px; accent-color: var(--accent); }
 
 .voice.multi { color: var(--text); border-color: var(--muted); background: transparent; }
 [data-theme="atelier"] .voice.multi { background: transparent; }
+
+/* Parametres : onglets (disposition propre a chaque theme) */
+#settings[hidden] { display: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 22px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.tab { font-family: var(--font-label); padding: 7px 15px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--muted); min-height: 34px; }
+.tab:hover { color: var(--text); background: var(--raised); }
+.tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.tabpanel[hidden] { display: none; }
+[data-theme="atelier"] .tabs { gap: 26px; padding-bottom: 0; border-bottom: 1px solid var(--text); }
+[data-theme="atelier"] .tab { border-radius: 0; padding: 8px 2px; font-size: 17px; margin-bottom: -1px; }
+[data-theme="atelier"] .tab:hover { background: transparent; }
+[data-theme="atelier"] .tab[aria-selected="true"] { background: transparent; color: var(--text); box-shadow: inset 0 -3px 0 var(--accent); }
+[data-theme="console"] .tabs { gap: 4px; }
+[data-theme="console"] .tab { border-radius: 3px; border-color: var(--line); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+[data-theme="console"] .tab[aria-selected="true"]::before { content: "> "; }
+[data-theme="conversation"] #settings { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; max-width: 1020px; align-items: start; }
+[data-theme="conversation"] #settings[hidden] { display: none; }
+[data-theme="conversation"] .tabs { flex-direction: column; flex-wrap: nowrap; gap: 4px; margin: 0; padding: 10px; border: 0; border-radius: 18px; background: var(--panel); box-shadow: 0 6px 24px rgba(23, 26, 43, .08); }
+[data-theme="conversation"] .tab { text-align: left; border-radius: 12px; }
+@media (max-width: 760px) {
+  [data-theme="conversation"] #settings { grid-template-columns: 1fr; }
+  [data-theme="conversation"] .tabs { flex-direction: row; flex-wrap: wrap; }
+}
+
+/* Boite de confirmation (remplace confirm(), dont le titre etait l'adresse interne de la fenetre) */
+dialog#ask { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-card); padding: 20px 22px; width: min(440px, calc(100vw - 40px)); box-shadow: 0 24px 70px rgba(0, 0, 0, .5); }
+dialog#ask::backdrop { background: rgba(0, 0, 0, .5); }
+dialog#ask h2 { margin: 0 0 10px; font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--text); }
+dialog#ask p { margin: 0 0 18px; white-space: pre-line; line-height: 1.5; }
+dialog#ask .row { display: flex; justify-content: flex-end; gap: 10px; }
+[data-theme="atelier"] dialog#ask { border-radius: 2px; }
+[data-theme="console"] dialog#ask { border-radius: 6px; }
+
+/* Assistant de qualite : mesures et conseils sous chaque echantillon */
+.q { margin-top: 6px; display: grid; gap: 3px; }
+.q p { margin: 0; font-size: 12px; line-height: 1.4; }
+.q-metrics { color: var(--muted); }
+.q-issue { color: var(--accent); }
+.q-ok { color: var(--ok); }
+#upd-progress { width: 100%; margin: 8px 0; }

@@ -24,6 +24,9 @@
   </header>
 
   <section id="settings" aria-labelledby="h-language" hidden>
+    <div id="settings-tabs" class="tabs" role="tablist" data-i18n-attr="aria-label:tab.aria"></div>
+    <div class="panels">
+    <div class="tabpanel" id="tab-interface" role="tabpanel" aria-labelledby="tab-btn-interface" hidden>
     <h2 id="h-language" data-i18n="set.language"></h2>
     <p class="hint" id="language-hint" data-i18n="set.language_hint"></p>
     <div id="languages" class="themes" role="radiogroup" aria-labelledby="language-hint"></div>
@@ -31,34 +34,44 @@
     <h2 id="h-theme" data-i18n="set.appearance"></h2>
     <p id="themes-hint" class="hint" data-i18n="set.appearance_hint"></p>
     <div id="themes" class="themes" role="radiogroup" aria-labelledby="themes-hint"></div>
-
+    </div>
+    <div class="tabpanel" id="tab-voices" role="tabpanel" aria-labelledby="tab-btn-voices" hidden>
+    <h2 id="h-vx" data-i18n="vx.title"></h2>
+    <p class="hint" data-i18n="vx.hint"></p>
+    <p id="vx-dir" class="hint"></p>
+    <ul id="vx-list" class="list"></ul>
+    <div class="row">
+      <button type="button" id="vx-export-all" data-i18n="vx.export_all"></button>
+      <button type="button" id="vx-import" data-i18n="vx.import"></button>
+      <button type="button" id="vx-open" data-i18n="vx.open"></button>
+    </div>
+    <p id="vx-status" class="status" role="status"></p>
+    </div>
+    <div class="tabpanel" id="tab-connect" role="tabpanel" aria-labelledby="tab-btn-connect" hidden>
     <h2 id="h-connect" data-i18n="conn.title"></h2>
     <p class="hint" data-i18n="conn.hint"></p>
     <p id="conn-warn" class="hint warn" hidden data-i18n="conn.no_server"></p>
     <div id="conn-blocks" class="codeblocks"></div>
     <p id="conn-status" class="status" role="status"></p>
-
-    <h2 id="h-updates" data-i18n="upd.title"></h2>
-    <p id="upd-version" class="hint"></p>
-    <div class="row">
-      <button type="button" id="upd-check" data-i18n="upd.check"></button>
-      <label class="inline"><input type="checkbox" id="upd-auto"><span data-i18n="upd.auto"></span></label>
     </div>
-    <p id="upd-status" class="status" role="status"></p>
-    <div id="upd-card" class="card" hidden>
-      <strong id="upd-new"></strong>
-      <p id="upd-size" class="hint"></p>
-      <h3 data-i18n="upd.notes"></h3>
-      <p id="upd-notes" class="notes"></p>
-      <p class="hint" data-i18n="upd.how"></p>
-      <button type="button" id="upd-open" class="primary" data-i18n="upd.open"></button>
-    </div>
-
+    <div class="tabpanel" id="tab-audios" role="tabpanel" aria-labelledby="tab-btn-audios" hidden>
     <h2 id="h-audios" data-i18n="aud.title"></h2>
     <p class="hint" data-i18n="aud.hint"></p>
     <p id="aud-path" class="hint"></p>
     <button type="button" id="aud-open" data-i18n="aud.open"></button>
+    </div>
+    <div class="tabpanel" id="tab-models" role="tabpanel" aria-labelledby="tab-btn-models" hidden>
+    <h2 id="h-settings" data-i18n="models.title"></h2>
+    <p class="hint" id="models-hint"></p>
+    <ul id="model-list" class="list"></ul>
+    <p id="models-status" class="status" role="status"></p>
 
+    <h2 id="h-components" data-i18n="comp.title"></h2>
+    <p class="hint" data-i18n="comp.hint"></p>
+    <ul id="comp-list" class="list"></ul>
+    <p id="comp-status" class="status" role="status"></p>
+    </div>
+    <div class="tabpanel" id="tab-gpu" role="tabpanel" aria-labelledby="tab-btn-gpu" hidden>
     <h2 id="h-gpu" data-i18n="gpu.title"></h2>
     <p id="gpu-summary" class="hint"></p>
     <label for="gpu-device" data-i18n="gpu.device"></label>
@@ -76,16 +89,6 @@
     </details>
     <p id="gpu-status" class="status" role="status"></p>
 
-    <h2 id="h-components" data-i18n="comp.title"></h2>
-    <p class="hint" data-i18n="comp.hint"></p>
-    <ul id="comp-list" class="list"></ul>
-    <p id="comp-status" class="status" role="status"></p>
-
-    <h2 id="h-settings" data-i18n="models.title"></h2>
-    <p class="hint" id="models-hint"></p>
-    <ul id="model-list" class="list"></ul>
-    <p id="models-status" class="status" role="status"></p>
-
     <h2 data-i18n="mem.title"></h2>
     <p class="hint" id="memory-state"></p>
     <div class="row">
@@ -93,7 +96,42 @@
       <button type="button" id="open-models" data-i18n="mem.open"></button>
     </div>
     <p class="hint" id="models-dir"></p>
+    </div>
+    <div class="tabpanel" id="tab-updates" role="tabpanel" aria-labelledby="tab-btn-updates" hidden>
+    <h2 id="h-updates" data-i18n="upd.title"></h2>
+    <p id="upd-version" class="hint"></p>
+    <div class="row">
+      <button type="button" id="upd-check" data-i18n="upd.check"></button>
+      <label class="inline"><input type="checkbox" id="upd-auto"><span data-i18n="upd.auto"></span></label>
+    </div>
+    <p id="upd-status" class="status" role="status"></p>
+    <div id="upd-card" class="card" hidden>
+      <strong id="upd-new"></strong>
+      <p id="upd-size" class="hint"></p>
+      <h3 data-i18n="upd.notes"></h3>
+      <p id="upd-notes" class="notes"></p>
+      <div class="row">
+        <button type="button" id="upd-install" class="primary" data-i18n="upd.install"></button>
+        <button type="button" id="upd-open" data-i18n="upd.open"></button>
+      </div>
+      <progress id="upd-progress" max="100" value="0" hidden></progress>
+      <p id="upd-noauto" class="hint warn" hidden data-i18n="upd.noauto"></p>
+      <p class="hint" data-i18n="upd.how"></p>
+    </div>
+    </div>
+    </div>
   </section>
+
+  <dialog id="ask" aria-labelledby="ask-title">
+    <form method="dialog">
+      <h2 id="ask-title" data-i18n="ask.title"></h2>
+      <p id="ask-msg"></p>
+      <div class="row end">
+        <button type="submit" value="cancel" data-i18n="ask.cancel"></button>
+        <button type="submit" value="ok" id="ask-ok" class="primary" data-i18n="ask.ok"></button>
+      </div>
+    </form>
+  </dialog>
 
   <main id="studio">
     <section id="voices" aria-labelledby="h-voices">

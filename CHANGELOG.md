@@ -6,6 +6,20 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.2.0 - 2026-11-12
+
+**English**
+- **Voice quality assistant**: under each sample, pitch, peak and signal/noise measures, and advice when a sample is too short, clipping, too quiet, noisy, has no transcript or a transcript that does not fit, or when the samples of one voice come from different people (pitch gap). Command line: `voiceclone-server voice-check <name>`.
+- **Export and import of voices** (Settings > Voices): a voice is exported as a folder (samples and transcripts) in the program's `Voix` subfolder; the import adds the voices found there, leaves existing ones untouched and reports unreadable ones without stopping. Command line: `export-voice <name> [folder]`, `import-voices [folder]`.
+- **One-click update**: "Install the update" downloads the release archive, checks its SHA-256 against the hash published by GitHub (no hash, no automatic install), unpacks it safely, then a script replaces the program files after it closes and restarts it. The `data`, `Audios` and `Voix` folders and the `portable` file are never touched.
+- **Settings in tabs**, with a layout for each theme, and confirmations in a "VoiceClone says" box instead of the browser's dialog. New banner image.
+
+**Français**
+- **Assistant de qualité des voix** : sous chaque échantillon, mesures de hauteur, de crête et d'écart signal/bruit, et conseils quand un échantillon est trop court, sature, est trop faible, bruité, sans transcription ou avec une transcription qui ne correspond pas, ou quand les échantillons d'une voix viennent de personnes différentes (écart de hauteur). Ligne de commande : `voiceclone-server voice-check <nom>`.
+- **Export et import des voix** (Paramètres > Voix) : une voix est exportée sous forme de dossier (échantillons et transcriptions) dans le sous-dossier `Voix` du programme ; l'import ajoute les voix qui s'y trouvent, laisse les existantes intactes et signale les illisibles sans s'arrêter. Ligne de commande : `export-voice <nom> [dossier]`, `import-voices [dossier]`.
+- **Mise à jour en un clic** : « Installer la mise à jour » télécharge l'archive de la release, vérifie son SHA-256 avec l'empreinte publiée par GitHub (pas d'empreinte, pas d'installation automatique), la décompresse en sécurité, puis un script remplace les fichiers du programme après sa fermeture et le relance. Les dossiers `data`, `Audios` et `Voix` et le fichier `portable` ne sont jamais touchés.
+- **Paramètres en onglets**, avec une disposition par thème, et confirmations dans une boîte « VoiceClone indique » au lieu de la boîte du navigateur. Nouvelle image d'en-tête.
+
 ## 0.1.9 - 2026-11-11
 
 **English**

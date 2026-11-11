@@ -7,6 +7,7 @@ pub mod components;
 pub mod engine;
 pub mod mcp;
 pub mod models;
+pub mod quality;
 pub mod script;
 mod store;
 pub mod update;
@@ -415,6 +416,21 @@ impl App {
         store.delete_sample(id)?;
         let _ = fs::remove_file(path);
         Ok(())
+    }
+
+    /// Analyse la qualite des echantillons d'une voix : mesures, problemes par echantillon et problemes de la voix.
+    pub fn voice_quality(&self, profile_id: i64) -> R<Value> {
+        let samples = self.store.lock().unwrap().samples(profile_id)?;
+        let mut metrics = vec![];
+        let mut rows = vec![];
+        for s in &samples {
+            let m = quality::measure(&audio::read_wav_24k(Path::new(&s.audio))?);
+            rows.push(json!({"id": s.id, "secs": (m.secs * 10.0).round() / 10.0, "peak": (m.peak as f64 * 100.0).round() / 100.0,
+                "clipped_pct": (m.clipped_pct as f64 * 1000.0).round() / 1000.0, "snr_db": m.snr_db.round() as i64, "f0": m.f0.map(|f| f.round() as i64),
+                "issues": quality::sample_issues(&m, &s.ref_text)}));
+            metrics.push(m);
+        }
+        Ok(json!({"samples": rows, "voice_issues": quality::voice_issues(&metrics)}))
     }
 
     pub fn list_samples(&self, profile_id: i64) -> R<Value> {

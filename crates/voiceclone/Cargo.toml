@@ -1,6 +1,6 @@
 [package]
 name = "voiceclone"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 
 # Nom distinct de l'application (VoiceClone.exe) : Windows ne distingue pas les majuscules, les deux se ecraseraient.

@@ -97,7 +97,7 @@ pub fn status(data_dir: &Path) -> Value {
     ])
 }
 
-fn sha256_file(path: &Path) -> R<String> {
+pub(crate) fn sha256_file(path: &Path) -> R<String> {
     let mut f = fs::File::open(path).map_err(e)?;
     let (mut h, mut buf) = (Sha256::new(), vec![0u8; 1 << 16]);
     loop {

@@ -12,13 +12,17 @@ fn usage() -> String {
 
   voiceclone-server                        lance le connecteur MCP (http://127.0.0.1:17494/mcp)
   voiceclone-server speak \"texte\" [...]    génère un audio depuis la ligne de commande (speak --help)
-  voiceclone-server export-voice <nom> <dossier>   exporte une voix (échantillons + transcriptions)
+  voiceclone-server export-voice <nom> [dossier]   exporte une voix (défaut : dossier Voix du programme)
+  voiceclone-server import-voices [dossier]        importe les voix d'un dossier (défaut : Voix)
+  voiceclone-server voice-check <nom>              analyse la qualité des échantillons d'une voix
   voiceclone-server import-voicebox <dossier sh.voicebox.app> [nom]",
 "VoiceClone (server version)
 
   voiceclone-server                        starts the MCP connector (http://127.0.0.1:17494/mcp)
   voiceclone-server speak \"text\" [...]     generates audio from the command line (speak --help)
-  voiceclone-server export-voice <name> <folder>   exports a voice (samples + transcripts)
+  voiceclone-server export-voice <name> [folder]   exports a voice (default: the program's Voix folder)
+  voiceclone-server import-voices [folder]         imports the voices of a folder (default: Voix)
+  voiceclone-server voice-check <name>             analyses the quality of a voice's samples
   voiceclone-server import-voicebox <sh.voicebox.app folder> [name]")
 }
 
@@ -106,12 +110,38 @@ fn run() -> R<()> {
             Ok(())
         }
         Some("export-voice") => {
-            let (name, folder) = (args.get(2), args.get(3));
-            let (Some(name), Some(folder)) = (name, folder) else {
-                return Err(tr!("usage : voiceclone-server export-voice <nom> <dossier>", "usage: voiceclone-server export-voice <name> <folder>"));
+            let Some(name) = args.get(2) else {
+                return Err(tr!("usage : voiceclone-server export-voice <nom> [dossier]", "usage: voiceclone-server export-voice <name> [folder]"));
             };
-            let n = App::open(dir)?.export_voice(name, Path::new(folder))?;
-            println!("{}", tr!("voix « {} » exportée : {} échantillon(s) dans {}", "voice \"{}\" exported: {} sample(s) to {}", name, n, folder));
+            let app = App::open(dir)?;
+            let target = match args.get(3) {
+                Some(folder) => {
+                    app.export_voice(name, Path::new(folder))?;
+                    Path::new(folder).to_path_buf()
+                }
+                None => app.export_voice_to_folder(name)?, // dossier Voix du programme
+            };
+            println!("{}", tr!("voix « {} » exportée dans {}", "voice \"{}\" exported to {}", name, target.display()));
+            Ok(())
+        }
+        Some("import-voices") => {
+            let app = App::open(dir)?;
+            let src = args.get(2).map(std::path::PathBuf::from).unwrap_or_else(|| app.voices_dir());
+            let (done, existing, errors) = app.import_voices_report(&src)?;
+            println!("{}", tr!("voix importées : {} ({} déjà présentes)", "voices imported: {} ({} already present)", if done.is_empty() { "-".to_string() } else { done.join(", ") }, existing));
+            for x in errors {
+                eprintln!("{}", tr!("ignorée : {}", "skipped: {}", x));
+            }
+            Ok(())
+        }
+        Some("voice-check") => {
+            let Some(name) = args.get(2) else {
+                return Err(tr!("usage : voiceclone-server voice-check <nom>", "usage: voiceclone-server voice-check <name>"));
+            };
+            let app = App::open(dir)?;
+            let id = app.list_profiles()?.as_array().into_iter().flatten().find(|p| p["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+                .and_then(|p| p["id"].as_i64()).ok_or_else(|| tr!("voix introuvable : {}", "voice not found: {}", name))?;
+            println!("{}", serde_json::to_string_pretty(&app.voice_quality(id)?).map_err(|x| x.to_string())?);
             Ok(())
         }
         Some("import-voicebox") => {

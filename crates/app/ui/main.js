@@ -97,12 +97,13 @@ async function loadProfiles() {
     del.append(icon(...ICON_TRASH));
     del.setAttribute('aria-label', t('voice.delete_aria', { name: p.name }));
     del.onclick = async () => {
-      if (!confirm(t('voice.delete_confirm', { name: p.name }))) return;
+      if (!(await ask(t('voice.delete_confirm', { name: p.name })))) return;
       try { await invoke('delete_profile', { id: p.id }); await loadProfiles(); await loadGenerations(); } catch (e) { fail($('status'), e); }
     };
     return el('li', {}, pick, del);
   }));
   renderTags();
+  if (!$('settings').hidden) renderVoicesTab();
   if (!profiles.length) $('new-profile-box').open = true;
   if (!profiles.length) $('profile-list').append(el('li', { className: 'empty', textContent: t('voices.empty') }));
   await loadSamples();
@@ -130,10 +131,31 @@ function sampleNotes() {
   const total = samples.reduce((s, x) => s + x.duration_sec, 0);
   const notes = [];
   if (!samples.length) notes.push(t('notes.none'));
-  if (samples.some((s) => !s.ref_text.trim())) notes.push(t('notes.no_text'));
-  if (samples.some((s) => s.suspect)) notes.push(t('notes.mismatch'));
+  for (const code of quality.voice_issues) notes.push(QMSG[code]());
+  if (samples.length && !quality.voice_issues.length && samples.every((s) => !(quality.samples[s.id]?.issues.length))) notes.push(t('q.good_voice'));
   if (total > WARN_AFTER_SEC) notes.push(t('notes.long', { total: fmt(total), limit: fmt(WARN_AFTER_SEC) }));
   $('sample-notes').textContent = notes.join(' ');
+}
+
+// ---------------------------------------------------------------- assistant de qualite des voix
+const QMSG = {
+  short: () => t('q.short'), clipping: () => t('q.clipping'), quiet: () => t('q.quiet'), noisy: () => t('q.noisy'),
+  no_text: () => t('q.no_text'), mismatch: () => t('q.mismatch'), pitch_mix: () => t('q.pitch_mix')
+};
+let quality = { samples: {}, voice_issues: [] };
+async function loadQuality(p) {
+  try {
+    const q = await invoke('voice_quality', { profileId: p.id });
+    quality = { samples: Object.fromEntries(q.samples.map((x) => [x.id, x])), voice_issues: q.voice_issues };
+  } catch { quality = { samples: {}, voice_issues: [] }; }
+}
+function qualityBlock(s) {
+  const q = quality.samples[s.id];
+  if (!q) return '';
+  return el('div', { className: 'q' },
+    el('p', { className: 'q-metrics', textContent: t('q.metrics', { f0: q.f0 ?? '?', snr: q.snr_db, peak: q.peak }) }),
+    ...q.issues.map((code) => el('p', { className: 'q-issue', textContent: QMSG[code]() })),
+    ...(q.issues.length ? [] : [el('p', { className: 'q-ok', textContent: t('q.ok') })]));
 }
 
 async function loadSamples() {
@@ -142,6 +164,7 @@ async function loadSamples() {
   if (!p) return;
   $('samples-title').textContent = t('samples.title', { name: p.name });
   samples = await invoke('samples', { profileId: p.id });
+  await loadQuality(p);
   const st = $('sample-status');
   $('sample-list').replaceChildren(...samples.map((s, i) => {
     const n = i + 1;
@@ -154,12 +177,12 @@ async function loadSamples() {
     const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
     del.setAttribute('aria-label', t('sample.delete_aria', { n }));
     del.onclick = async () => {
-      if (!confirm(t('sample.delete_confirm', { n }))) return;
+      if (!(await ask(t('sample.delete_confirm', { n })))) return;
       try { await invoke('delete_sample', { id: s.id }); await loadProfiles(); } catch (e) { fail(st, e); }
     };
     return el('li', { className: 'sample' },
       el('div', { className: 'row' }, el('span', { className: 'grow', textContent: t('sample.label', { n, dur: fmt(s.duration_sec) }) }), playButton('sample', s.id, st), del),
-      text);
+      text, qualityBlock(s));
   }));
   markPlaying();
   sampleNotes();
@@ -369,7 +392,7 @@ async function drawBars(box, id, enhanced) {
 let genTotal = 0;
 $('gen-clear').append(icon(...ICON_TRASH));
 $('gen-clear').onclick = async () => {
-  if (!genTotal || !confirm(t('gen.clear_confirm', { n: genTotal }))) return;
+  if (!genTotal || !(await ask(t('gen.clear_confirm', { n: genTotal })))) return;
   if (playingKey?.startsWith('generation:')) $('player').pause();
   try { await invoke('delete_all_generations'); await loadGenerations(); say($('status'), t('gen.cleared')); } catch (e) { fail($('status'), e); }
 };
@@ -420,7 +443,7 @@ async function loadGenerations() {
     del.append(icon(...ICON_TRASH));
     del.setAttribute('aria-label', t('gen.delete'));
     del.onclick = async () => {
-      if (!confirm(t('gen.delete_confirm'))) return;
+      if (!(await ask(t('gen.delete_confirm')))) return;
       try { await invoke('delete_generation', { id: g.id }); await loadGenerations(); } catch (e) { fail(st, e); }
     };
     const dl = (format) => {
@@ -456,6 +479,48 @@ async function loadGenerations() {
   if (!list.length) $('gen-list').append(el('li', { className: 'empty', textContent: t('gen.empty') }));
   markPlaying();
 }
+
+// ---------------------------------------------------------------- confirmation (a la place de confirm() : son titre serait l'adresse interne)
+function ask(msg) {
+  return new Promise((resolve) => {
+    const d = $('ask');
+    $('ask-msg').textContent = msg;
+    d.returnValue = 'cancel';
+    d.onclose = () => resolve(d.returnValue === 'ok');
+    d.showModal();
+    $('ask-ok').focus();
+  });
+}
+
+// ---------------------------------------------------------------- parametres : onglets
+const TAB_LABELS = { interface: () => t('tab.interface'), voices: () => t('tab.voices'), connect: () => t('tab.connect'), audios: () => t('tab.audios'), models: () => t('tab.models'), gpu: () => t('tab.gpu'), updates: () => t('tab.updates') };
+const SETTINGS_TABS = Object.keys(TAB_LABELS);
+let settingsTab = 'interface';
+try { const saved = localStorage.getItem('vc-settings-tab'); if (SETTINGS_TABS.includes(saved)) settingsTab = saved; } catch { /* stockage indisponible */ }
+function selectTab(id, focus = false) {
+  settingsTab = id;
+  try { localStorage.setItem('vc-settings-tab', id); } catch { /* idem */ }
+  renderTabs();
+  if (focus) $(`tab-btn-${id}`).focus();
+}
+function renderTabs() {
+  $('settings-tabs').replaceChildren(...SETTINGS_TABS.map((id, i) => {
+    const b = el('button', { type: 'button', id: `tab-btn-${id}`, className: 'tab', textContent: TAB_LABELS[id]() });
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', id === settingsTab);
+    b.setAttribute('aria-controls', `tab-${id}`);
+    b.tabIndex = id === settingsTab ? 0 : -1;
+    b.onclick = () => selectTab(id);
+    b.onkeydown = (ev) => {
+      const n = SETTINGS_TABS.length;
+      const next = { ArrowRight: (i + 1) % n, ArrowDown: (i + 1) % n, ArrowLeft: (i + n - 1) % n, ArrowUp: (i + n - 1) % n, Home: 0, End: n - 1 }[ev.key];
+      if (next !== undefined) { ev.preventDefault(); selectTab(SETTINGS_TABS[next], true); }
+    };
+    return b;
+  }));
+  for (const id of SETTINGS_TABS) $(`tab-${id}`).hidden = id !== settingsTab;
+}
+renderTabs();
 
 // ---------------------------------------------------------------- parametres : langue et apparence
 const THEMES = [
@@ -550,7 +615,7 @@ function renderConnection() {
     el('details', {}, el('summary', { textContent: t('conn.ai_preview') }), el('pre', { textContent: doc }))));
   $('conn-blocks').replaceChildren(...blocks);
 }
-$('aud-open').onclick = () => invoke('open_audios_dir').catch(e => alert(e));
+$('aud-open').onclick = () => invoke('open_audios_dir').catch((e) => fail($('status'), e));
 async function loadConnection() {
   connInfo = await invoke('connection_info');
   $('aud-path').textContent = connInfo.audios;
@@ -567,6 +632,9 @@ function renderUpdate() {
   $('upd-badge').textContent = t('upd.badge', { latest: updateInfo.latest });
   $('upd-new').textContent = t('upd.available', { latest: updateInfo.latest, current: updateInfo.current });
   $('upd-notes').textContent = updateInfo.notes;
+  const auto = !!updateInfo.asset?.sha256;
+  $('upd-install').hidden = !auto;
+  $('upd-noauto').hidden = auto;
   $('upd-size').textContent = updateInfo.asset ? t('upd.size', { name: updateInfo.asset.name, size: size(updateInfo.asset.size / 1048576) }) : '';
 }
 async function checkUpdate(silent) {
@@ -580,10 +648,22 @@ async function checkUpdate(silent) {
   } catch (e) { if (!silent) fail(st, e); }
 }
 $('upd-check').onclick = () => checkUpdate(false);
+$('upd-install').onclick = async () => {
+  const st = $('upd-status'), bar = $('upd-progress');
+  if (!(await ask(t('upd.install_confirm', { latest: updateInfo.latest })))) return;
+  $('upd-install').disabled = true;
+  bar.hidden = false;
+  bar.value = 0;
+  say(st, t('upd.downloading'));
+  try {
+    await invoke('install_update'); // le programme se ferme, est mis a jour puis se relance
+    say(st, t('upd.restarting'));
+  } catch (e) { $('upd-install').disabled = false; bar.hidden = true; fail(st, e); }
+};
 $('upd-open').onclick = () => invoke('open_release', { url: updateInfo.url }).catch((e) => fail($('upd-status'), e));
 $('upd-auto').checked = lsGet('voiceclone-update-check') !== 'off';
 $('upd-auto').onchange = () => lsSet('voiceclone-update-check', $('upd-auto').checked ? 'on' : 'off');
-$('upd-badge').onclick = () => { show('settings'); $('h-updates').scrollIntoView(); };
+$('upd-badge').onclick = () => { show('settings'); selectTab('updates'); };
 
 // ---------------------------------------------------------------- parametres : carte graphique
 const gpuLabel = (d) => `${d.name} · ${d.description}${d.gpu && d.total_mb ? ` · ${t('gpu.gb', { n: (d.total_mb / 1024).toFixed(0) })}` : ''}`;
@@ -637,7 +717,7 @@ for (const id of ['gpu-device', 'gpu-fa', 'gpu-clamp']) $(id).onchange = saveGpu
 let installing = null; // id du composant en cours d'installation
 async function installComponent(c) {
   const st = $('comp-status');
-  if (!confirm(t(c.id === 'vulkan' ? 'comp.confirm_vulkan' : 'comp.confirm_cuda'))) return;
+  if (!(await ask(t(c.id === 'vulkan' ? 'comp.confirm_vulkan' : 'comp.confirm_cuda')))) return;
   installing = c.id;
   await loadComponents();
   try {
@@ -718,7 +798,7 @@ async function loadModels() {
     } else {
       if (!x.codec && !x.active) act(t('models.use'), async () => { await invoke('set_model', { file: x.file }); await loadModels(); say(st, t('models.use_done', { label: x.label })); });
       act(t('common.delete'), async () => {
-        if (!confirm(t('models.delete_confirm', { label: x.label, size: size(x.size_mb) }))) return;
+        if (!(await ask(t('models.delete_confirm', { label: x.label, size: size(x.size_mb) })))) return;
         await invoke('delete_model', { file: x.file });
         await loadModels();
         say(st, t('models.deleted', { label: x.label }));
@@ -743,7 +823,40 @@ function show(target) {
 $('nav-studio').onclick = () => show('studio');
 $('nav-settings').onclick = () => show('settings');
 
+// ---------------------------------------------------------------- parametres : export et import des voix
+async function renderVoicesTab() {
+  const st = $('vx-status');
+  try { const info = await invoke('voices_info'); $('vx-dir').textContent = t('vx.folder', { dir: info.dir, n: info.found }); } catch (e) { fail(st, e); }
+  $('vx-list').replaceChildren(...profiles.map((p) => {
+    const b = el('button', { type: 'button', textContent: t('vx.export'), disabled: !p.samples });
+    b.setAttribute('aria-label', t('vx.export_aria', { name: p.name }));
+    b.onclick = async () => {
+      try { say(st, t('vx.exported', { path: await invoke('export_voice', { name: p.name }) })); await renderVoicesTab(); } catch (e) { fail(st, e); }
+    };
+    return el('li', { className: 'model' },
+      el('div', { className: 'grow' }, el('strong', { textContent: p.name }), el('span', { className: 'meta', textContent: tp('voice.meta', { lang: langName(p.language), n: p.samples }) })), b);
+  }));
+}
+$('vx-export-all').onclick = async () => {
+  const st = $('vx-status');
+  try { const names = await invoke('export_all_voices'); say(st, t('vx.exported_all', { n: names.length })); await renderVoicesTab(); } catch (e) { fail(st, e); }
+};
+$('vx-import').onclick = async () => {
+  const st = $('vx-status');
+  try {
+    const r = await invoke('import_voices');
+    const parts = [r.imported.length ? t('vx.imported', { names: r.imported.join(', ') }) : t('vx.nothing'), t('vx.existing', { n: r.existing })];
+    if (r.errors.length) parts.push(t('vx.errors', { errors: r.errors.join(' · ') }));
+    say(st, parts.join(' '));
+    if (r.errors.length) st.classList.add('error');
+    await loadProfiles();
+    await renderVoicesTab();
+  } catch (e) { fail(st, e); }
+};
+$('vx-open').onclick = () => invoke('open_voices_dir').catch((e) => fail($('vx-status'), e));
+
 function loadSettings() {
+  renderVoicesTab();
   renderUpdate();
   loadConnection().catch((e) => fail($('conn-status'), e));
   loadModels().catch((e) => fail($('models-status'), e));
@@ -764,6 +877,7 @@ async function renderAll() {
   renderLanguageChoices();
   renderThemeChoices();
   renderMcp();
+  renderTabs();
   renderUpdate();
   renderConnection();
   if (recorder) $('rec-label').textContent = t('samples.stop_rec', { time: '0:00' });
@@ -788,12 +902,23 @@ async function renderAll() {
       if (bar) bar.value = percent(p);
       if (pct) pct.textContent = t('models.progress', { pct: percent(p), done: size(Math.round(p.done / 1048576)), total: size(Math.round(p.total / 1048576)) });
     });
+    await listen('update-progress', ({ payload: p }) => {
+      $('upd-progress').value = percent(p);
+      say($('upd-status'), t('upd.progress', { pct: percent(p), done: size(Math.round(p.done / 1048576)), total: size(Math.round(p.total / 1048576)) }));
+    });
     await listen('component-progress', ({ payload: p }) => {
       const bar = $('comp-bar');
       if (bar) bar.value = percent(p);
       const key = { manifest: 'comp.stage_manifest', verify: 'comp.stage_verify', extract: 'comp.stage_extract', launch: 'comp.stage_launch' }[p.stage];
       say($('comp-status'), key ? t(key) : t('comp.stage_download', { pct: percent(p) }));
     });
+    // Resultat de l'installation precedente (ecrit par le script de mise a jour).
+    const upd = await invoke('update_log');
+    if (upd) {
+      show('settings');
+      selectTab('updates');
+      if (upd === 'ok') say($('upd-status'), t('upd.done', { version: appVersion })); else fail($('upd-status'), upd);
+    }
     mcpInfo = await invoke('mcp_info');
     await listen('changed', () => loadGenerations().catch((e) => fail($('status'), e)));
     await renderAll();

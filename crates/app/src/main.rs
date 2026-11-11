@@ -66,6 +66,42 @@ fn generations(app: Core<'_>) -> R<Value> {
     app.list_generations(200)
 }
 
+/// Analyse de qualite des echantillons d'une voix (assistant de qualite).
+#[tauri::command]
+fn voice_quality(app: Core<'_>, profile_id: i64) -> R<Value> {
+    app.voice_quality(profile_id)
+}
+
+/// Dossier Voix du programme et ce qu'il contient (une voix par sous-dossier).
+#[tauri::command]
+fn voices_info(app: Core<'_>) -> Value {
+    let dir = app.voices_dir();
+    let found = std::fs::read_dir(&dir).map(|d| d.flatten().filter(|f| f.path().join("voice.json").is_file()).count()).unwrap_or(0);
+    json!({"dir": dir.display().to_string(), "found": found})
+}
+
+#[tauri::command]
+fn export_voice(app: Core<'_>, name: String) -> R<String> {
+    Ok(app.export_voice_to_folder(&name)?.display().to_string())
+}
+
+#[tauri::command]
+fn export_all_voices(app: Core<'_>) -> R<Vec<String>> {
+    app.export_all_voices()
+}
+
+/// Importe les voix du dossier Voix : {imported, existing, errors}.
+#[tauri::command]
+fn import_voices(app: Core<'_>) -> R<Value> {
+    let (imported, existing, errors) = app.import_voices_report(&app.voices_dir())?;
+    Ok(json!({"imported": imported, "existing": existing, "errors": errors}))
+}
+
+#[tauri::command]
+fn open_voices_dir(app: Core<'_>) -> R<()> {
+    std::process::Command::new("explorer").arg(app.voices_dir()).spawn().map(|_| ()).map_err(|x| x.to_string())
+}
+
 #[tauri::command]
 fn mark_heard(app: Core<'_>, id: i64) -> R<()> {
     app.mark_heard(id)
@@ -139,6 +175,40 @@ fn open_in_browser(url: &str) -> R<()> {
 }
 
 /// Ouvre la page d'une release du depot, et seulement elle.
+/// Installe la derniere version : telecharge l'archive de la release, verifie son SHA-256, la decompresse puis
+/// laisse un script remplacer les fichiers apres la fermeture de l'application, qui se relance toute seule.
+/// L'archive est decidee ici (nouvelle interrogation de GitHub), jamais par l'interface.
+#[tauri::command]
+async fn install_update(app: Core<'_>, handle: tauri::AppHandle) -> R<()> {
+    let data = app.data_dir();
+    tauri::async_runtime::spawn_blocking(move || -> R<()> {
+        let info = update::check(&update::current_version())?;
+        if !info["newer"].as_bool().unwrap_or(false) {
+            return Err(tr!("vous avez déjà la dernière version", "you already have the latest version"));
+        }
+        let exe = std::env::current_exe().map_err(|x| x.to_string())?;
+        let install = exe.parent().ok_or_else(|| tr!("dossier du programme introuvable", "program folder not found"))?.to_path_buf();
+        if !update::can_write(&install) {
+            return Err(tr!("le dossier du programme n'est pas modifiable : téléchargez l'archive et remplacez-le à la main", "the program folder is not writable: download the archive and replace it by hand"));
+        }
+        let progress = handle.clone();
+        let staged = update::stage(&info["asset"], &data, &std::sync::atomic::AtomicBool::new(false), &move |done, total| {
+            let _ = progress.emit("update-progress", json!({"done": done, "total": total}));
+        })?;
+        update::apply(&staged, &install, &exe, std::process::id(), &data)?;
+        handle.exit(0);
+        Ok(())
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+/// Resultat de la derniere installation (« ok » ou « error: ... »), lu une seule fois.
+#[tauri::command]
+fn update_log(app: Core<'_>) -> Option<String> {
+    update::take_update_log(&app.data_dir())
+}
+
 #[tauri::command]
 fn open_release(url: String) -> R<()> {
     if !update::is_release_url(&url) {
@@ -320,7 +390,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
-            connection_info, open_audios_dir, mark_heard, delete_all_generations, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
+            connection_info, open_audios_dir, mark_heard, voice_quality, voices_info, export_voice, export_all_voices, import_voices, open_voices_dir, delete_all_generations, get_lang, set_lang, app_version, check_update, install_update, update_log, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

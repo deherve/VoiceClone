@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/banner-0.1.9.png" alt="VoiceClone: local voice cloning / clonage de voix local" width="100%"></p>
+<p align="center"><img src="docs/banner-0.2.0.png" alt="VoiceClone: local voice cloning / clonage de voix local" width="100%"></p>
 
 # VoiceClone
 
@@ -28,6 +28,9 @@
 - **Text to speech** in a three-zone window: voices and samples, text to say, list of generations (waveform, play, copy the text).
 - **Tags and dialogues**: buttons above the text insert `[pause]` (1 s, or `[pause 2.5s]`) and one `[VoiceName]` tag per voice at the cursor; the text after a voice tag is spoken with that voice, so a long multi-voice dialogue is one generation. Long texts are generated in pieces of 30 s at most and merged. The cloning model understands no emotion tags: to change the tone, add a voice recorded in that tone (e.g. "Zen cheerful") and use its tag.
 - **One colour per voice**: the text box repaints each part of the text in the colour of the voice that will speak it (readable in all four themes); a generation spoken by several voices is labelled "multiple". A button in the Generations header deletes all generated audios (with confirmation).
+- **Voice quality assistant**: under each sample, pitch, peak and noise measures and plain advice (too short, clipping, too quiet, background noise, missing or wrong transcript, samples from different people).
+- **Export and import of voices**: Settings > Voices exports a voice as a folder (samples and transcripts) in the program's `Voix` subfolder and imports the voices found there.
+- **One-click update**: the update card installs the new version (download, SHA-256 check against GitHub, replace, restart); your voices, audios and settings are never touched.
 - **Transcript check**: a sample whose transcript does not fit its audio length (cut recording, suggested text left in place) is flagged and ignored for cloning, because it makes the voice drift.
 - **Enhancement**: voice equalizer and normalized volume, switchable per generation (the original is always kept). WAV and MP3 export with a "Save as" dialog.
 - **Claude Code (MCP)**: tools `speak` (with `enhanced`), `list_profiles`, `list_generations`; also available as a headless server with no window.
@@ -130,6 +133,9 @@ Support the project: [Donate with PayPal](https://www.paypal.com/donate/?hosted_
 - **Synthèse vocale** dans une fenêtre à trois zones : voix et échantillons, texte à dire, liste des générations (forme d'onde, lecture, copie du texte).
 - **Balises et dialogues** : des boutons au-dessus du texte insèrent au curseur `[pause]` (1 s, ou `[pause 2.5s]`) et une balise `[NomDeVoix]` par voix ; le texte qui suit une balise de voix est dit avec cette voix, un long dialogue à plusieurs voix est donc une seule génération. Les longs textes sont générés en morceaux de 30 s au plus puis fusionnés. Le modèle de clonage ne comprend aucune balise d'émotion : pour changer de ton, ajoutez une voix enregistrée sur ce ton (par ex. « Zen enjoué ») et utilisez sa balise.
 - **Une couleur par voix** : la zone de texte repeint chaque partie du texte avec la couleur de la voix qui la dira (lisible dans les quatre thèmes) ; une génération dite par plusieurs voix est étiquetée « multiple ». Un bouton dans l'en-tête des Générations supprime tous les audios générés (avec confirmation).
+- **Assistant de qualité des voix** : sous chaque échantillon, mesures de hauteur, de crête et de bruit et conseils clairs (trop court, saturation, niveau faible, bruit de fond, transcription absente ou fausse, échantillons de personnes différentes).
+- **Export et import des voix** : Paramètres > Voix exporte une voix sous forme de dossier (échantillons et transcriptions) dans le sous-dossier `Voix` du programme et importe les voix qui s'y trouvent.
+- **Mise à jour en un clic** : la carte de mise à jour installe la nouvelle version (téléchargement, vérification du SHA-256 auprès de GitHub, remplacement, relance) ; vos voix, vos audios et vos réglages ne sont jamais touchés.
 - **Contrôle des transcriptions** : un échantillon dont la transcription ne correspond pas à la durée de son audio (enregistrement coupé, texte proposé laissé tel quel) est signalé et ignoré pour le clonage, car il fait dériver la voix.
 - **Amélioration** : égaliseur de voix et volume normalisé, activable par génération (l'original est toujours conservé). Export WAV et MP3 avec boîte « Enregistrer sous ».
 - **Claude Code (MCP)** : outils `speak` (avec `enhanced`), `list_profiles`, `list_generations` ; disponible aussi en version serveur sans fenêtre.

@@ -100,7 +100,9 @@ function Assemble([string]$name, [string[]]$exes) {
     $audio = Get-ChildItem $dir -Recurse -File | Where-Object { $_.Extension -match '^\.(wav|mp3|flac|ogg|m4a)$' -and $_.FullName -notmatch '\\Voix\\Zen\\sample-\d+\.wav$' }
     if ($audio) { throw "Fichiers audio inattendus dans l'archive : $($audio.Name -join ', ')" }
     $zip = "$root\target\dist\$name.zip"
-    Compress-Archive -Path "$dir\*" -DestinationPath $zip
+    # tar (bsdtar de Windows) ecrit un zip standard ; Compress-Archive de PowerShell 5.1 y met des antislash.
+    tar -a -c -f $zip -C $dir .
+    if ($LASTEXITCODE) { throw "$name : creation du zip impossible." }
     Write-Host ("{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dir -Recurse -File).Count)
     $zip
 }

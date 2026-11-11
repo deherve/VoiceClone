@@ -8,7 +8,7 @@ fn last_err() -> String {
 }
 
 fn cstr(s: &str) -> R<CString> {
-    CString::new(s).map_err(|_| "caractère nul interdit dans le texte".to_string())
+    CString::new(s).map_err(|_| tr!("caractère nul interdit dans le texte", "null character not allowed in the text"))
 }
 
 pub struct Engine(*mut qt_context);
@@ -85,7 +85,19 @@ pub struct Device {
 /// les DLL ggml-vulkan.dll / ggml-cuda.dll presentes a cote de l'executable.
 pub fn devices() -> Vec<Device> {
     static LOAD: std::sync::Once = std::sync::Once::new();
-    LOAD.call_once(|| unsafe { ggml_backend_load_all() });
+    LOAD.call_once(|| {
+        // Bibliotheques CUDA installees depuis Parametres (<donnees>\cuda) : ggml-cuda.dll les y trouve a son chargement.
+        if let Some(dir) = crate::data_dir().ok().map(|d| crate::components::cuda_dir(&d)).filter(|d| d.is_dir()) {
+            use std::{iter::once, os::windows::ffi::OsStrExt};
+            extern "system" {
+                fn SetDllDirectoryW(path: *const u16) -> i32;
+            }
+            let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(once(0)).collect();
+            // SAFETY : chaine UTF-16 terminee par zero, vivante pendant l'appel.
+            unsafe { SetDllDirectoryW(wide.as_ptr()) };
+        }
+        unsafe { ggml_backend_load_all() }
+    });
     let text = |p: *const std::os::raw::c_char| unsafe { if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().into_owned() } };
     let mut out: Vec<Device> = vec![];
     unsafe {
@@ -150,7 +162,7 @@ impl Engine {
     pub fn load(talker: &Path, codec: &Path, device: &str, use_fa: bool, clamp: bool) -> R<Self> {
         for p in [talker, codec] {
             if !p.exists() {
-                return Err(format!("modèle absent ({}) : téléchargez-le dans Paramètres", p.file_name().unwrap_or_default().to_string_lossy()));
+                return Err(tr!("modèle absent ({}) : téléchargez-le dans Paramètres", "model missing ({}): download it in Settings", p.file_name().unwrap_or_default().to_string_lossy()));
             }
         }
         let (t, c) = (cstr(&talker.to_string_lossy())?, cstr(&codec.to_string_lossy())?);
@@ -159,7 +171,7 @@ impl Engine {
             let mut p: qt_init_params = std::mem::zeroed();
             qt_init_default_params(&mut p);
             if p.abi_version != QT_ABI_VERSION {
-                return Err(format!("ABI qwen {} différente de la liaison Rust {}", p.abi_version, QT_ABI_VERSION));
+                return Err(tr!("ABI qwen {} différente de la liaison Rust {}", "qwen ABI {} differs from the Rust binding {}", p.abi_version, QT_ABI_VERSION));
             }
             p.talker_path = t.as_ptr();
             p.codec_path = c.as_ptr();
@@ -167,7 +179,7 @@ impl Engine {
             p.use_fa = use_fa;
             p.clamp_fp16 = clamp;
             let q = qt_init(&p);
-            if q.is_null() { Err(format!("chargement du modèle : {}", last_err())) } else { Ok(Engine(q)) }
+            if q.is_null() { Err(tr!("chargement du modèle : {}", "loading the model: {}", last_err())) } else { Ok(Engine(q)) }
         }
     }
 
@@ -176,7 +188,7 @@ impl Engine {
         unsafe {
             let mut v: qt_voice_ref = std::mem::zeroed();
             if qt_extract_voice_ref(self.0, pcm.as_ptr(), pcm.len() as i32, &mut v) != QT_STATUS_OK {
-                return Err(format!("extraction de la voix : {}", last_err()));
+                return Err(tr!("extraction de la voix : {}", "extracting the voice: {}", last_err()));
             }
             let out = Voice {
                 spk: std::slice::from_raw_parts(v.ref_spk_emb, v.ref_spk_dim as usize).to_vec(),
@@ -208,7 +220,7 @@ impl Engine {
             p.seed = seed;
             let mut out: qt_audio = std::mem::zeroed();
             if qt_synthesize(self.0, &p, &mut out) != QT_STATUS_OK {
-                return Err(format!("synthèse : {}", last_err()));
+                return Err(tr!("synthèse : {}", "synthesis: {}", last_err()));
             }
             let pcm = std::slice::from_raw_parts(out.samples, out.n_samples as usize).to_vec();
             qt_audio_free(&mut out);

@@ -29,11 +29,11 @@ fn call(app: &App, p: &Value) -> Value {
     let r = match p["name"].as_str().unwrap_or("") {
         "speak" => match a["text"].as_str() {
             Some(t) => app.speak(t, a["profile"].as_str(), a["language"].as_str(), a["seed"].as_i64(), a["output_path"].as_str().map(Path::new), a["enhanced"].as_bool().unwrap_or(false)),
-            None => Err("paramètre « text » requis".into()),
+            None => Err(tr!("paramètre « text » requis", "parameter \"text\" is required")),
         },
         "list_profiles" => app.list_profiles(),
         "list_generations" => app.list_generations(a["limit"].as_i64().unwrap_or(20)),
-        n => Err(format!("outil inconnu : {n}")),
+        n => Err(tr!("outil inconnu : {}", "unknown tool: {}", n)),
     };
     let (text, is_error) = match r {
         Ok(v) => (v.to_string(), false),
@@ -93,7 +93,7 @@ pub fn port() -> u16 {
 
 /// Ouvre le port local (echoue tout de suite s'il est deja pris).
 pub fn bind(port: u16) -> R<Server> {
-    Server::http(("127.0.0.1", port)).map_err(|x| format!("port {port} indisponible : {}", e(x)))
+    Server::http(("127.0.0.1", port)).map_err(|x| tr!("port {} indisponible : {}", "port {} unavailable: {}", port, e(x)))
 }
 
 /// Sert le MCP sur http://127.0.0.1:<port>/mcp jusqu'a l'arret du processus.

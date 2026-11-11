@@ -1,0 +1,41 @@
+# Changelog
+
+Versions go up by 0.0.1; after the digit 9 the next tens digit is used: 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
+Each release on GitHub carries the notes of its section below (English, then French).
+
+Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
+Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
+
+## 0.1.1 - 2026-11-11
+
+**English**
+- **English and French interface.** Choose the language in Settings; it also applies to error messages and to the headless server (the choice is saved).
+- **Update check.** VoiceClone looks for a newer release on GitHub (once a day at startup, or on demand; it can be turned off), shows a badge and the release notes, and opens the release page. One request, no data sent.
+- **Components and tools** (Settings): shows what is present or missing (Vulkan, CUDA, MP3/LAME) and installs what is missing from the official sources: Vulkan runtime from LunarG (SHA-256 hash and signature checked, Windows asks for permission), CUDA 12 libraries from NVIDIA (SHA-256 from NVIDIA's manifest). LAME is built in. CUDA support itself is not shipped yet and was not tested on an NVIDIA card.
+- **Standalone builds.** The archives now include the Visual C++ runtimes (checked with `scripts/check-deps.ps1`), so nothing needs installing. New *portable mode* (an empty file named `portable` next to the program keeps all data in a `data` folder). New **server-only archive** (`VoiceClone-Server-…zip`): the MCP connector without a window and without WebView2.
+- Release tooling: `scripts/bump-version.ps1` (version rule above), `scripts/release.ps1` (builds, checks, publishes both archives), `scripts/check-i18n.mjs`.
+- Bilingual README with a donation link.
+
+**Français**
+- **Interface en anglais et en français.** La langue se choisit dans Paramètres ; elle s'applique aussi aux messages d'erreur et à la version serveur (le choix est enregistré).
+- **Détection des mises à jour.** VoiceClone cherche une release plus récente sur GitHub (une fois par jour au démarrage, ou à la demande ; désactivable), affiche un badge et les notes de version, et ouvre la page de la release. Une seule requête, aucune donnée envoyée.
+- **Composants et outils** (Paramètres) : indique ce qui est présent ou manquant (Vulkan, CUDA, MP3/LAME) et installe ce qui manque depuis les sources officielles : runtime Vulkan de LunarG (empreinte SHA-256 et signature vérifiées, Windows demande l'autorisation), bibliothèques CUDA 12 de NVIDIA (SHA-256 du manifeste NVIDIA). LAME est intégré. Le module CUDA lui-même n'est pas encore fourni et n'a pas été testé sur une carte NVIDIA.
+- **Versions autonomes.** Les archives incluent maintenant les runtimes Visual C++ (contrôlés par `scripts/check-deps.ps1`) : rien à installer. Nouveau *mode portable* (un fichier vide nommé `portable` à côté du programme garde toutes les données dans un dossier `data`). Nouvelle **archive serveur seul** (`VoiceClone-Server-….zip`) : le connecteur MCP sans fenêtre et sans WebView2.
+- Outils de publication : `scripts/bump-version.ps1` (règle de versions ci-dessus), `scripts/release.ps1` (compile, contrôle, publie les deux archives), `scripts/check-i18n.mjs`.
+- README bilingue avec lien de soutien.
+
+## 0.1.0 - 2026-11-11
+
+**English**
+- First release: local voice cloning and audio generation with Qwen3-TTS (qwentts.cpp), as a Tauri app and as a headless MCP server for Claude Code.
+- Voices from samples recorded with the microphone or imported (no length limit), with transcripts.
+- GPU computing through Vulkan (tested on an AMD RX 6700 XT), automatic device detection with fallback to the processor; CUDA path written but untested.
+- Voice enhancement (equalizer + normalized volume), WAV and MP3 export with a save dialog, waveforms, copy text, four interface themes, model manager (download, switch, unload).
+- MCP tools `speak` (with `enhanced`), `list_profiles`, `list_generations`.
+
+**Français**
+- Première version : clonage de voix et génération d'audio en local avec Qwen3-TTS (qwentts.cpp), en application Tauri et en serveur MCP sans fenêtre pour Claude Code.
+- Voix à partir d'échantillons enregistrés au micro ou importés (sans limite de durée), avec transcriptions.
+- Calcul sur GPU via Vulkan (testé sur une AMD RX 6700 XT), détection automatique avec repli sur le processeur ; chemin CUDA écrit mais non testé.
+- Amélioration de la voix (égaliseur + volume normalisé), export WAV et MP3 avec boîte « Enregistrer sous », formes d'onde, copie du texte, quatre thèmes, gestionnaire de modèles (téléchargement, choix, déchargement).
+- Outils MCP `speak` (avec `enhanced`), `list_profiles`, `list_generations`.

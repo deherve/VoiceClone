@@ -1,65 +1,87 @@
-# Publie une version : compile, assemble le zip et cree la release GitHub avec le zip en piece jointe.
-#   .\scripts\release.ps1 -Version 0.1.1 -Notes "Ce qui change"
-# Prerequis : `gh` connecte, version deja commitee et poussee sur main, moteur compile (build-qwen.cmd).
-param(
-    [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
-    [string]$Notes = '',
-    [switch]$SansPublier   # assemble le zip seulement, pour le tester avant de publier
-)
+# Publie une version : compile, assemble deux archives autonomes et cree la release GitHub.
+#   .\scripts\release.ps1                  version = celle de crates\app\Cargo.toml ; notes = sa section de CHANGELOG.md
+#   .\scripts\release.ps1 -SansPublier     assemble et controle les archives, sans rien publier
+# Archives (aucune installation, runtimes Visual C++ inclus) :
+#   VoiceClone-<v>-windows-x64.zip          application avec fenetre + version serveur
+#   VoiceClone-Server-<v>-windows-x64.zip   version serveur seule (connecteur MCP, sans fenetre, sans WebView2)
+# Prerequis : `gh` connecte, version commitee et poussee sur main, moteur compile (build-qwen.cmd).
+param([switch]$SansPublier)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
 Set-Location $root
 
+$Version = (Select-String -Path "$root\crates\app\Cargo.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+$tauri = (Select-String -Path "$root\crates\app\tauri.conf.json" -Pattern '"version":\s*"([^"]+)"').Matches[0].Groups[1].Value
+$core = (Select-String -Path "$root\crates\voiceclone\Cargo.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+if ($tauri -ne $Version -or $core -ne $Version) { throw "Versions différentes (app $Version, tauri.conf.json $tauri, coeur $core) : utiliser scripts\bump-version.ps1." }
 if (git status --porcelain) { throw "Des changements ne sont pas commités : commit et push d'abord." }
 if ((git rev-parse HEAD) -ne (git rev-parse origin/main)) { throw "main local et origin/main diffèrent : push d'abord (la release part de main)." }
-$cargo = (Select-String -Path "$root\crates\app\Cargo.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
-if ($cargo -ne $Version) { throw "Cargo.toml indique la version $cargo : l'aligner sur $Version avant de publier." }
 
-cargo build --release
+# Notes de la version : sa section du CHANGELOG (anglais puis francais).
+$log = Get-Content "$root\CHANGELOG.md" -Raw -Encoding UTF8
+$m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($Version))\b[^\r\n]*\r?\n(.*?)(?=^## |\z)")
+if (-not $m.Success) { throw "CHANGELOG.md n'a pas de section « ## $Version »." }
+$notes = $m.Groups[1].Value.Trim()
+
+node "$root\scripts\check-i18n.mjs"
+if ($LASTEXITCODE) { throw 'traductions incohérentes' }
+cargo test --release -p voiceclone 2>&1 | Out-Null
+if ($LASTEXITCODE) { throw 'les tests échouent' }
+cargo build --release 2>&1 | Out-Null
 if ($LASTEXITCODE) { throw 'cargo build a échoué' }
 
-$name = "VoiceClone-$Version-windows-x64"
-$dist = "$root\target\dist\$name"
-Remove-Item "$root\target\dist" -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory "$dist\licences" | Out-Null
 $rel = "$root\target\release"
-Copy-Item "$rel\VoiceClone.exe", "$rel\voiceclone-server.exe" $dist
-# DLL du moteur : mêmes familles que qwen-sys/build.rs (qwen, ggml, et cudart/cublas pour la variante CUDA).
-Get-ChildItem $rel -Filter *.dll | Where-Object { $_.Name -match '^(qwen|ggml|cudart|cublas)' } | Copy-Item -Destination $dist
-Copy-Item "$root\vendor\qwentts\LICENSE" "$dist\licences\qwentts.cpp-LICENSE.txt"
-Copy-Item "$root\vendor\qwentts\ggml\LICENSE" "$dist\licences\ggml-LICENSE.txt"
+$redistRoot = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\*" -Directory | Where-Object { Test-Path "$($_.FullName)\x64\Microsoft.VC143.CRT" } | Sort-Object Name | Select-Object -Last 1
+if (-not $redistRoot) { throw 'Runtimes Visual C++ introuvables (Build Tools, dossier Redist).' }
+# Runtimes necessaires au moteur (verifie par check-deps.ps1) : redistribuables au sens de la licence Visual Studio.
+$runtimes = @("$($redistRoot.FullName)\x64\Microsoft.VC143.CRT\vcruntime140.dll", "$($redistRoot.FullName)\x64\Microsoft.VC143.CRT\vcruntime140_1.dll",
+              "$($redistRoot.FullName)\x64\Microsoft.VC143.CRT\msvcp140.dll", "$($redistRoot.FullName)\x64\Microsoft.VC143.OpenMP\vcomp140.dll")
 
-@'
-VoiceClone — génération d'audio avec une voix clonée, en local
-===============================================================
+$readme = @"
+VoiceClone $Version
+===================
 
-Lancer : VoiceClone.exe (application avec fenêtre).
-Version sans fenêtre, pour Claude Code et les scripts : voiceclone-server.exe (même connecteur MCP, même port).
-Ne lancez pas les deux en même temps.
+ENGLISH
+Local voice cloning and audio generation, driven from a window or from Claude Code (MCP).
+- No installation: unzip anywhere and run. The Visual C++ runtimes are included.
+- First launch: Settings > Models: download the synthesis model (about 2 GB) and the audio codec (about 0.3 GB).
+- Needs Windows 10/11 64-bit and a graphics driver with Vulkan (AMD, NVIDIA, Intel); without one the processor is used, about 4 times slower.
+- Portable mode: create an empty file named "portable" next to the program; your data then stay in the "data" folder instead of %APPDATA%\VoiceClone.
+- MCP connector: http://127.0.0.1:17494/mcp  (tools: speak, list_profiles, list_generations)
+- Windows may warn about an unsigned program (SmartScreen): choose "More info" then "Run anyway".
+- Source code and updates: https://github.com/deherve/VoiceClone  -  Support: https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 
-Prérequis : Windows 10/11 64 bits, WebView2 (déjà présent sous Windows 11) et un pilote graphique avec Vulkan
-(AMD, NVIDIA, Intel). Sans GPU compatible, le calcul se fait sur le processeur, environ 4 fois plus lent.
+FRANCAIS
+Clonage de voix et generation d'audio en local, depuis une fenetre ou depuis Claude Code (MCP).
+- Aucune installation : decompressez n'importe ou et lancez. Les runtimes Visual C++ sont inclus.
+- Premier lancement : Parametres > Modeles : telechargez le modele de synthese (environ 2 Go) et le codec audio (environ 0,3 Go).
+- Necessite Windows 10/11 64 bits et un pilote graphique avec Vulkan (AMD, NVIDIA, Intel) ; sans lui, le processeur est utilise, environ 4 fois plus lent.
+- Mode portable : creez un fichier vide nomme "portable" a cote du programme ; vos donnees restent alors dans le dossier "data" au lieu de %APPDATA%\VoiceClone.
+- Connecteur MCP : http://127.0.0.1:17494/mcp  (outils : speak, list_profiles, list_generations)
+- Windows peut avertir qu'un programme n'est pas signe (SmartScreen) : « Informations complementaires » puis « Executer quand meme ».
+- Code source et mises a jour : https://github.com/deherve/VoiceClone  -  Soutenir : https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
+"@
 
-Premier lancement
-1. Paramètres > Modèles : télécharger le modèle de synthèse (environ 2 Go) et le codec audio (environ 0,3 Go).
-2. Studio > Voix : créer une voix, enregistrer un échantillon au micro ou importer un fichier, saisir sa transcription exacte.
-3. Saisir le texte, Générer.
-
-Connecteur MCP (Claude Code) : http://127.0.0.1:17494/mcp
-  .mcp.json :  { "mcpServers": { "voiceclone": { "type": "http", "url": "http://127.0.0.1:17494/mcp" } } }
-  Outils : speak (text, profile, language, enhanced, output_path, seed), list_profiles, list_generations.
-
-Windows peut afficher « Windows a protégé votre ordinateur » : l'exécutable n'est pas signé.
-Cartes NVIDIA : le calcul passe par Vulkan ; la variante CUDA n'est pas fournie dans cette archive.
-Données : %APPDATA%\VoiceClone. Licences des composants tiers : dossier licences.
-Code source : https://github.com/deherve/VoiceClone
-'@ | Set-Content "$dist\LISEZMOI.txt" -Encoding UTF8
-
-$zip = "$root\target\dist\$name.zip"
-Compress-Archive -Path "$dist\*" -DestinationPath $zip
-"{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dist -Recurse -File).Count
-
+Remove-Item "$root\target\dist" -Recurse -Force -ErrorAction SilentlyContinue
+function Assemble([string]$name, [string[]]$exes) {
+    $dir = "$root\target\dist\$name"
+    New-Item -ItemType Directory "$dir\licences" | Out-Null
+    foreach ($e in $exes) { Copy-Item "$rel\$e" $dir }
+    # DLL du moteur : memes familles que qwen-sys/build.rs (qwen, ggml, et cudart/cublas pour la variante CUDA).
+    Get-ChildItem $rel -Filter *.dll | Where-Object { $_.Name -match '^(qwen|ggml|cudart|cublas)' } | Copy-Item -Destination $dir
+    Copy-Item $runtimes $dir
+    Copy-Item "$root\vendor\qwentts\LICENSE" "$dir\licences\qwentts.cpp-LICENSE.txt"
+    Copy-Item "$root\vendor\qwentts\ggml\LICENSE" "$dir\licences\ggml-LICENSE.txt"
+    Set-Content "$dir\README.txt" $readme -Encoding UTF8
+    & "$root\scripts\check-deps.ps1" -Dir $dir
+    if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }
+    $zip = "$root\target\dist\$name.zip"
+    Compress-Archive -Path "$dir\*" -DestinationPath $zip
+    "{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dir -Recurse -File).Count
+    $zip
+}
+$app = Assemble "VoiceClone-$Version-windows-x64" @('VoiceClone.exe', 'voiceclone-server.exe') | Select-Object -Last 1
+$srv = Assemble "VoiceClone-Server-$Version-windows-x64" @('voiceclone-server.exe') | Select-Object -Last 1
 if ($SansPublier) { return }
-$args_ = @("v$Version", $zip, '--target', 'main', '--title', "VoiceClone $Version")
-if ($Notes) { $args_ += @('--notes', $Notes) } else { $args_ += '--generate-notes' }
-gh release create @args_
+
+gh release create "v$Version" $app $srv --target main --title "VoiceClone $Version" --notes $notes

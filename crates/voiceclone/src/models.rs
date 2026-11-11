@@ -6,14 +6,14 @@ pub const CODEC: &str = "qwen-tokenizer-12hz-Q8_0.gguf";
 pub const DEFAULT_TALKER: &str = "qwen-talker-1.7b-base-Q8_0.gguf";
 pub const REPO: &str = "https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/";
 
-/// (fichier, libelle, taille en Mo). Seuls les modeles « base » savent cloner une voix.
-pub const CATALOG: &[(&str, &str, u32)] = &[
-    (DEFAULT_TALKER, "Qwen3-TTS 1.7B · Q8 (recommandé)", 1983),
-    ("qwen-talker-1.7b-base-BF16.gguf", "Qwen3-TTS 1.7B · BF16 (moins compressé, plus lourd)", 3697),
-    ("qwen-talker-1.7b-base-Q4_K_M.gguf", "Qwen3-TTS 1.7B · Q4 (plus léger)", 1163),
-    ("qwen-talker-0.6b-base-Q8_0.gguf", "Qwen3-TTS 0.6B · Q8 (plus rapide)", 947),
-    ("qwen-talker-0.6b-base-Q4_K_M.gguf", "Qwen3-TTS 0.6B · Q4 (le plus léger)", 600),
-    (CODEC, "Codec audio 12 Hz (obligatoire)", 278),
+/// (fichier, libelle francais, libelle anglais, taille en Mo). Seuls les modeles « base » savent cloner une voix.
+pub const CATALOG: &[(&str, &str, &str, u32)] = &[
+    (DEFAULT_TALKER, "Qwen3-TTS 1.7B · Q8 (recommandé)", "Qwen3-TTS 1.7B · Q8 (recommended)", 1983),
+    ("qwen-talker-1.7b-base-BF16.gguf", "Qwen3-TTS 1.7B · BF16 (moins compressé, plus lourd)", "Qwen3-TTS 1.7B · BF16 (less compressed, heavier)", 3697),
+    ("qwen-talker-1.7b-base-Q4_K_M.gguf", "Qwen3-TTS 1.7B · Q4 (plus léger)", "Qwen3-TTS 1.7B · Q4 (lighter)", 1163),
+    ("qwen-talker-0.6b-base-Q8_0.gguf", "Qwen3-TTS 0.6B · Q8 (plus rapide)", "Qwen3-TTS 0.6B · Q8 (faster)", 947),
+    ("qwen-talker-0.6b-base-Q4_K_M.gguf", "Qwen3-TTS 0.6B · Q4 (le plus léger)", "Qwen3-TTS 0.6B · Q4 (lightest)", 600),
+    (CODEC, "Codec audio 12 Hz (obligatoire)", "12 Hz audio codec (required)", 278),
 ];
 
 /// Seuls les noms du catalogue sont acceptes : pas de chemin libre venant de l'interface.
@@ -38,7 +38,7 @@ pub fn download(url: &str, dest: &Path, cancel: &AtomicBool, progress: &dyn Fn(u
             fs::remove_file(&part).map_err(e)?;
             return download(url, dest, cancel, progress);
         }
-        Err(x) => return Err(format!("téléchargement impossible : {x}")),
+        Err(x) => return Err(tr!("téléchargement impossible : {}", "download failed: {}", x)),
     };
     let resumed = resp.status() == 206;
     let mut done = if resumed { have } else { 0 };
@@ -48,9 +48,9 @@ pub fn download(url: &str, dest: &Path, cancel: &AtomicBool, progress: &dyn Fn(u
     progress(done, total);
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return Err("téléchargement annulé (il reprendra où il s'est arrêté)".into());
+            return Err(tr!("téléchargement annulé (il reprendra où il s'est arrêté)", "download cancelled (it will resume where it stopped)"));
         }
-        let n = reader.read(&mut buf).map_err(|x| format!("téléchargement interrompu : {x}"))?;
+        let n = reader.read(&mut buf).map_err(|x| tr!("téléchargement interrompu : {}", "download interrupted: {}", x))?;
         if n == 0 {
             break;
         }
@@ -63,7 +63,7 @@ pub fn download(url: &str, dest: &Path, cancel: &AtomicBool, progress: &dyn Fn(u
     }
     drop(out);
     if total > 0 && done != total {
-        return Err(format!("téléchargement incomplet ({done} octets sur {total}) : relancez pour reprendre"));
+        return Err(tr!("téléchargement incomplet ({} octets sur {}) : relancez pour reprendre", "incomplete download ({} of {} bytes): retry to resume", done, total));
     }
     fs::rename(&part, dest).map_err(e)
 }

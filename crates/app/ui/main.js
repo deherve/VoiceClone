@@ -1,17 +1,17 @@
-// Interface VoiceClone : tout le texte passe par textContent (jamais innerHTML).
+// Interface VoiceClone : tout le texte passe par textContent (jamais innerHTML) et par t() (voir i18n.js).
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 
-const LANGS = { french: 'Français', english: 'Anglais', german: 'Allemand', spanish: 'Espagnol', italian: 'Italien',
-  portuguese: 'Portugais', japanese: 'Japonais', korean: 'Coréen', chinese: 'Chinois', russian: 'Russe' };
-// Texte propose a la lecture au micro (profils en francais) : il sert ensuite de transcription.
-const READ_ME = "Bonjour, et bienvenue. Aujourd'hui, je prends un moment pour enregistrer ma voix, calmement, sans me presser. "
-  + "Est-ce que le ton est naturel ? Je crois que oui. Je parle comme d'habitude, avec des phrases courtes, puis d'autres un peu plus longues, "
-  + "pour donner du rythme. Voilà, c'est terminé : merci de m'avoir écouté !";
+const LANG_CODES = ['french', 'english', 'german', 'spanish', 'italian', 'portuguese', 'japanese', 'korean', 'chinese', 'russian'];
+const langName = (code) => (LANG_CODES.includes(code) ? t(`lang.${code}`) : code);
 const WARN_AFTER_SEC = 90; // mesure : a 3 min de reference la generation deraille, a 1 min 30 elle tient
 
-let profiles = [], current = null, samples = [], busy = false, recorder = null, playingKey = null;
+let profiles = [], current = null, samples = [], busy = false, recorder = null, playingKey = null, page = 'studio';
+let appVersion = '', updateInfo = null;
+
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* preference valable pour cette session seulement */ } };
 
 function el(tag, props = {}, ...kids) {
   const n = Object.assign(document.createElement(tag), props);
@@ -20,8 +20,11 @@ function el(tag, props = {}, ...kids) {
 }
 const fmt = (s) => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const say = (where, msg) => { where.textContent = msg; where.classList.remove('error'); };
-const fail = (where, err) => { where.textContent = `Erreur : ${err?.message ?? err}`; where.classList.add('error'); };
+const fail = (where, err) => { where.textContent = t('common.error', { msg: err?.message ?? err }); where.classList.add('error'); };
 const profile = () => profiles.find((p) => p.id === current);
+// Taille lisible : « 2,0 Go » en francais, « 2.0 GB » en anglais.
+const size = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1).replace('.', LANG === 'fr' ? ',' : '.')} ${t('unit.gb')}` : `${Math.round(mb)} ${t('unit.mb')}`);
+const percent = (p) => (p.total ? Math.floor((p.done / p.total) * 100) : 0);
 
 // ---------------------------------------------------------------- lecture audio
 const PLAY = 'M7 4.5v15l13-7.5z', PAUSE = 'M7 4h4v16H7zM13 4h4v16h-4z';
@@ -32,9 +35,9 @@ function markPlaying() {
     const on = b.dataset.key === playingKey;
     if (b.classList.contains('play-circle')) {
       b.replaceChildren(icon(on ? PAUSE : PLAY));
-      b.setAttribute('aria-label', on ? 'Arrêter la lecture' : 'Écouter');
+      b.setAttribute('aria-label', on ? t('common.stop_playback') : t('common.play'));
     } else {
-      b.textContent = on ? 'Arrêter' : 'Écouter';
+      b.textContent = on ? t('common.stop') : t('common.play');
     }
     b.setAttribute('aria-pressed', on);
   }
@@ -84,24 +87,28 @@ async function loadProfiles() {
       el('span', { className: 'avatar', textContent: initials(p.name) }),
       el('span', { className: 'who' },
         el('strong', { textContent: p.name }),
-        el('span', { textContent: `${LANGS[p.language] ?? p.language} · ${p.samples} échantillon${p.samples > 1 ? 's' : ''}` })));
+        el('span', { textContent: tp('voice.meta', { lang: langName(p.language), n: p.samples }) })));
     pick.setAttribute('aria-pressed', p.id === current);
-    const del = el('button', { type: 'button', className: 'ghost danger icon', title: 'Supprimer cette voix' });
+    const del = el('button', { type: 'button', className: 'ghost danger icon', title: t('voice.delete') });
     del.append(icon(...ICON_TRASH));
-    del.setAttribute('aria-label', `Supprimer la voix ${p.name}`);
+    del.setAttribute('aria-label', t('voice.delete_aria', { name: p.name }));
     del.onclick = async () => {
-      if (!confirm(`Supprimer la voix « ${p.name} » et ses échantillons ? Cette action est définitive.`)) return;
+      if (!confirm(t('voice.delete_confirm', { name: p.name }))) return;
       try { await invoke('delete_profile', { id: p.id }); await loadProfiles(); await loadGenerations(); } catch (e) { fail($('status'), e); }
     };
     return el('li', {}, pick, del);
   }));
   if (!profiles.length) $('new-profile-box').open = true;
-  if (!profiles.length) $('profile-list').append(el('li', { className: 'empty', textContent: 'Aucune voix. Créez-en une ci-dessous.' }));
+  if (!profiles.length) $('profile-list').append(el('li', { className: 'empty', textContent: t('voices.empty') }));
   await loadSamples();
   updateGo();
 }
 
-$('np-lang').append(...Object.entries(LANGS).map(([value, textContent]) => el('option', { value, textContent })));
+function fillLanguageOptions() {
+  const keep = $('np-lang').value;
+  $('np-lang').replaceChildren(...LANG_CODES.map((value) => el('option', { value, textContent: t(`lang.${value}`) })));
+  if (keep) $('np-lang').value = keep;
+}
 $('new-profile').onsubmit = async (ev) => {
   ev.preventDefault();
   try {
@@ -109,17 +116,17 @@ $('new-profile').onsubmit = async (ev) => {
     $('np-name').value = '';
     $('new-profile-box').open = false;
     await loadProfiles();
-    say($('sample-status'), 'Voix créée. Ajoutez maintenant un échantillon.');
+    say($('sample-status'), t('voices.created'));
   } catch (e) { fail($('status'), e); }
 };
 
 // ---------------------------------------------------------------- echantillons
 function sampleNotes() {
-  const total = samples.reduce((t, s) => t + s.duration_sec, 0);
+  const total = samples.reduce((s, x) => s + x.duration_sec, 0);
   const notes = [];
-  if (!samples.length) notes.push('Ajoutez un échantillon pour pouvoir générer avec cette voix.');
-  if (samples.some((s) => !s.ref_text.trim())) notes.push('Transcription manquante : le clonage se limite au timbre de la voix, il est moins fidèle.');
-  if (total > WARN_AFTER_SEC) notes.push(`${fmt(total)} d'échantillons au total : au-delà de ${fmt(WARN_AFTER_SEC)} environ, la génération ralentit et peut dérailler.`);
+  if (!samples.length) notes.push(t('notes.none'));
+  if (samples.some((s) => !s.ref_text.trim())) notes.push(t('notes.no_text'));
+  if (total > WARN_AFTER_SEC) notes.push(t('notes.long', { total: fmt(total), limit: fmt(WARN_AFTER_SEC) }));
   $('sample-notes').textContent = notes.join(' ');
 }
 
@@ -127,24 +134,25 @@ async function loadSamples() {
   const p = profile();
   $('samples-panel').hidden = !p;
   if (!p) return;
-  $('sp-name').textContent = p.name;
+  $('samples-title').textContent = t('samples.title', { name: p.name });
   samples = await invoke('samples', { profileId: p.id });
   const st = $('sample-status');
   $('sample-list').replaceChildren(...samples.map((s, i) => {
-    const text = el('textarea', { value: s.ref_text, rows: 3, placeholder: 'Transcription exacte de cet échantillon' });
-    text.setAttribute('aria-label', `Transcription de l'échantillon ${i + 1}`);
+    const n = i + 1;
+    const text = el('textarea', { value: s.ref_text, rows: 3, placeholder: t('sample.placeholder') });
+    text.setAttribute('aria-label', t('sample.transcript_aria', { n }));
     text.onchange = async () => {
-      try { await invoke('set_sample_text', { id: s.id, text: text.value }); s.ref_text = text.value; sampleNotes(); say(st, 'Transcription enregistrée.'); }
+      try { await invoke('set_sample_text', { id: s.id, text: text.value }); s.ref_text = text.value; sampleNotes(); say(st, t('sample.saved')); }
       catch (e) { fail(st, e); }
     };
-    const del = el('button', { type: 'button', className: 'ghost danger', textContent: 'Supprimer' });
-    del.setAttribute('aria-label', `Supprimer l'échantillon ${i + 1}`);
+    const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
+    del.setAttribute('aria-label', t('sample.delete_aria', { n }));
     del.onclick = async () => {
-      if (!confirm(`Supprimer l'échantillon ${i + 1} ? Cette action est définitive.`)) return;
+      if (!confirm(t('sample.delete_confirm', { n }))) return;
       try { await invoke('delete_sample', { id: s.id }); await loadProfiles(); } catch (e) { fail(st, e); }
     };
     return el('li', { className: 'sample' },
-      el('div', { className: 'row' }, el('span', { className: 'grow', textContent: `Échantillon ${i + 1} · ${fmt(s.duration_sec)}` }), playButton('sample', s.id, st), del),
+      el('div', { className: 'row' }, el('span', { className: 'grow', textContent: t('sample.label', { n, dur: fmt(s.duration_sec) }) }), playButton('sample', s.id, st), del),
       text);
   }));
   markPlaying();
@@ -165,13 +173,16 @@ async function to24k(arrayBuffer) {
 
 async function addSample(arrayBuffer, profileId, transcript) {
   const st = $('sample-status');
-  say(st, "Conversion de l'audio…");
+  say(st, t('sample.converting'));
   const pcm = await to24k(arrayBuffer);
   const id = await invoke('add_sample', new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), { headers: { 'x-profile': String(profileId) } });
   if (transcript) await invoke('set_sample_text', { id, text: transcript });
   await loadProfiles();
-  say(st, transcript ? 'Échantillon ajouté. Corrigez la transcription si vous avez dit autre chose.' : 'Échantillon ajouté. Saisissez sa transcription exacte.');
+  say(st, transcript ? t('sample.added_guided') : t('sample.added'));
 }
+
+// Texte propose a la lecture au micro : celui de la langue de la voix (il sert ensuite de transcription).
+const readingText = (lang) => (lang === 'french' ? t('readme.french') : lang === 'english' ? t('readme.english') : '');
 
 $('rec').onclick = async () => {
   const st = $('sample-status'), btn = $('rec');
@@ -179,28 +190,28 @@ $('rec').onclick = async () => {
   const p = profile();
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (e) { fail(st, `micro inaccessible (${e.message})`); return; }
+  catch (e) { fail(st, t('sample.mic_error', { msg: e.message })); return; }
   const chunks = [], t0 = Date.now();
-  const guided = p.language === 'french';
-  const tick = () => { $('rec-label').textContent = `Arrêter (${fmt((Date.now() - t0) / 1000)})`; };
+  const script = readingText(p.language);
+  const tick = () => { $('rec-label').textContent = t('samples.stop_rec', { time: fmt((Date.now() - t0) / 1000) }); };
   const timer = setInterval(tick, 500);
   recorder = new MediaRecorder(stream);
   recorder.ondataavailable = (e) => chunks.push(e.data);
   recorder.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach((tr) => tr.stop());
     clearInterval(timer);
     recorder = null;
-    $('rec-label').textContent = 'Enregistrer';
+    $('rec-label').textContent = t('samples.rec');
     btn.classList.remove('recording');
     $('read-me').hidden = true;
-    try { await addSample(await new Blob(chunks).arrayBuffer(), p.id, guided ? READ_ME : ''); } catch (e) { fail(st, e); }
+    try { await addSample(await new Blob(chunks).arrayBuffer(), p.id, script); } catch (e) { fail(st, e); }
   };
   recorder.start();
   btn.classList.add('recording');
   tick();
-  $('read-me').textContent = READ_ME;
-  $('read-me').hidden = !guided;
-  say(st, guided ? 'Enregistrement en cours. Lisez le texte ci-dessus, ou dites autre chose et corrigez la transcription ensuite.' : 'Enregistrement en cours.');
+  $('read-me').replaceChildren(el('strong', { textContent: t('readme.prefix') }), script);
+  $('read-me').hidden = !script;
+  say(st, script ? t('sample.rec_guided') : t('sample.rec_plain'));
 };
 
 $('import').onclick = () => $('file').click();
@@ -209,7 +220,7 @@ $('file').onchange = async (ev) => {
   ev.target.value = '';
   if (!file) return;
   try { await addSample(await file.arrayBuffer(), current, ''); }
-  catch (e) { fail($('sample-status'), `fichier audio illisible (${e?.message ?? e})`); }
+  catch (e) { fail($('sample-status'), t('sample.file_error', { msg: e?.message ?? e })); }
 };
 
 // ---------------------------------------------------------------- generation
@@ -218,8 +229,8 @@ function updateGo() {
   $('go').disabled = busy || !p || !p.samples || !n;
   $('clear').disabled = !$('text').value;
   $('count').replaceChildren(...(p
-    ? [el('span', { className: 'avatar', textContent: initials(p.name) }), `Voix : ${p.name} · ${n} caractère${n > 1 ? 's' : ''}`]
-    : ['Aucune voix sélectionnée']));
+    ? [el('span', { className: 'avatar', textContent: initials(p.name) }), tp('compose.line', { name: p.name, n })]
+    : [t('compose.no_voice')]));
 }
 
 async function generate() {
@@ -227,10 +238,10 @@ async function generate() {
   if (busy || !p || !text) return;
   busy = true;
   updateGo();
-  say(st, 'Génération en cours… Le premier appel charge le modèle, il est plus long.');
+  say(st, t('compose.generating'));
   try {
     const r = await invoke('speak', { text, profile: p.name });
-    say(st, `${fmt(r.duration_sec)} d'audio générées en ${r.elapsed_sec} s.`);
+    say(st, t('compose.done', { dur: fmt(r.duration_sec), s: r.elapsed_sec }));
   } catch (e) { fail(st, e); }
   busy = false;
   updateGo();
@@ -240,10 +251,10 @@ $('text').oninput = updateGo;
 $('text').onkeydown = (ev) => { if (ev.ctrlKey && ev.key === 'Enter') generate(); };
 // Efface par une commande d'edition : Ctrl+Z ramene le texte (une affectation de .value l'effacerait pour de bon).
 $('clear').onclick = () => {
-  const t = $('text');
-  t.focus();
-  t.select();
-  if (!document.execCommand('delete')) t.value = '';
+  const tx = $('text');
+  tx.focus();
+  tx.select();
+  if (!document.execCommand('delete')) tx.value = '';
   updateGo();
 };
 
@@ -268,12 +279,12 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); }
   catch {
     // Repli : la webview peut refuser l'API presse-papiers hors geste utilisateur.
-    const t = el('textarea', { value: text });
-    document.body.append(t);
-    t.select();
+    const tx = el('textarea', { value: text });
+    document.body.append(tx);
+    tx.select();
     const ok = document.execCommand('copy');
-    t.remove();
-    if (!ok) throw new Error('copie impossible');
+    tx.remove();
+    if (!ok) throw new Error(t('gen.copy_failed'));
   }
 }
 
@@ -291,22 +302,22 @@ async function drawBars(box, id, enhanced) {
 async function loadGenerations() {
   const st = $('status');
   const list = await invoke('generations');
-  $('gen-count').textContent = list.length ? `${list.length} audio${list.length > 1 ? 's' : ''}` : '';
+  $('gen-count').textContent = list.length ? tp('gen.count', { n: list.length }) : '';
   $('gen-list').replaceChildren(...list.map((g) => {
-    const copy = el('button', { type: 'button', className: 'ghost icon', title: 'Copier le texte' });
-    copy.setAttribute('aria-label', 'Copier le texte de cette génération');
+    const copy = el('button', { type: 'button', className: 'ghost icon', title: t('gen.copy') });
+    copy.setAttribute('aria-label', t('gen.copy_aria'));
     copy.append(icon(...ICON_COPY));
     copy.onclick = async () => {
       try {
         await copyText(g.text);
         copy.classList.add('done');
         copy.replaceChildren(icon(...ICON_CHECK));
-        say(st, 'Texte copié.');
+        say(st, t('gen.copied'));
         setTimeout(() => { copy.classList.remove('done'); copy.replaceChildren(icon(...ICON_COPY)); }, 1500);
       } catch (e) { fail(st, e); }
     };
-    const folder = el('button', { type: 'button', className: 'ghost', textContent: 'Dossier' });
-    folder.setAttribute('aria-label', 'Montrer le fichier dans l\'Explorateur');
+    const folder = el('button', { type: 'button', className: 'ghost', textContent: t('gen.folder') });
+    folder.setAttribute('aria-label', t('gen.folder_aria'));
     folder.onclick = () => invoke('reveal', { id: g.id }).catch((e) => fail(st, e));
     // Original | Amélioré : l'amélioration est un égaliseur de voix + une normalisation du volume.
     const version = (label, on, title) => {
@@ -319,31 +330,31 @@ async function loadGenerations() {
           // La version jouée change : on coupe la lecture de cette génération avant de la remplacer.
           if (playingKey === `generation:${g.id}`) $('player').pause();
           await invoke('set_enhanced', { id: g.id, on });
-          say(st, on ? 'Amélioration activée : voix égalisée et volume normalisé.' : 'Audio d\'origine rétabli.');
+          say(st, on ? t('gen.enh_on') : t('gen.enh_off'));
           await loadGenerations();
         } catch (e) { b.disabled = false; fail(st, e); }
       };
       return b;
     };
-    const seg = el('div', { className: 'seg' }, version('Original', false, 'Audio tel que généré'), version('Amélioré', true, 'Égaliseur de voix et volume normalisé'));
+    const seg = el('div', { className: 'seg' }, version(t('gen.original'), false, t('gen.original_title')), version(t('gen.enhanced'), true, t('gen.enhanced_title')));
     seg.setAttribute('role', 'group');
-    seg.setAttribute('aria-label', 'Version de l\'audio');
-    const del = el('button', { type: 'button', className: 'ghost danger icon end', title: 'Supprimer cette génération' });
+    seg.setAttribute('aria-label', t('gen.version_aria'));
+    const del = el('button', { type: 'button', className: 'ghost danger icon end', title: t('gen.delete') });
     del.append(icon(...ICON_TRASH));
-    del.setAttribute('aria-label', 'Supprimer cette génération');
+    del.setAttribute('aria-label', t('gen.delete'));
     del.onclick = async () => {
-      if (!confirm('Supprimer cette génération et son fichier audio ? Cette action est définitive.')) return;
+      if (!confirm(t('gen.delete_confirm'))) return;
       try { await invoke('delete_generation', { id: g.id }); await loadGenerations(); } catch (e) { fail(st, e); }
     };
     const dl = (format) => {
       const b = el('button', { type: 'button', className: 'ghost', textContent: format.toUpperCase() });
-      b.setAttribute('aria-label', `Télécharger en ${format.toUpperCase()}${g.enhanced ? ' (version améliorée)' : ''}`);
+      b.setAttribute('aria-label', t(g.enhanced ? 'gen.dl_aria_enh' : 'gen.dl_aria', { fmt: format.toUpperCase() }));
       b.onclick = async () => {
         b.disabled = true;
-        say(st, `Choisissez le dossier et le nom du ${format.toUpperCase()}…`);
+        say(st, t('gen.dl_choose', { fmt: format.toUpperCase() }));
         try {
           const path = await invoke('download', { id: g.id, format });
-          say(st, path ? `Enregistré : ${path}` : 'Téléchargement annulé.');
+          say(st, path ? t('gen.saved', { path }) : t('gen.cancelled'));
         } catch (e) { fail(st, e); }
         b.disabled = false;
       };
@@ -358,18 +369,89 @@ async function loadGenerations() {
       el('div', { className: 'audio' },
         el('div', { className: 'player' }, playButton('generation', g.id, st), bars, el('span', { className: 'dur', textContent: fmt(g.duration_sec) })),
         el('div', { className: 'meta' },
-          el('span', { className: 'voice', textContent: `Voix : ${g.profile ?? 'supprimée'}` }),
+          el('span', { className: 'voice', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));
   }));
-  if (!list.length) $('gen-list').append(el('li', { className: 'empty', textContent: 'Les audios générés apparaîtront ici, y compris ceux demandés par Claude Code.' }));
+  if (!list.length) $('gen-list').append(el('li', { className: 'empty', textContent: t('gen.empty') }));
   markPlaying();
 }
 
+// ---------------------------------------------------------------- parametres : langue et apparence
+const THEMES = [
+  { id: 'nocturne', colors: ['#0f1217', '#1d2330', '#ffb03b'] },
+  { id: 'atelier', colors: ['#f6f1e7', '#1d1b17', '#c2410c'] },
+  { id: 'console', colors: ['#0b0d0e', '#182022', '#2dd4bf'] },
+  { id: 'conversation', colors: ['#f1f2f7', '#ffffff', '#4338ca'] }
+];
+function applyTheme(id) {
+  if (id === 'nocturne') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = id;
+  try { localStorage.setItem('voiceclone-theme', id); } catch { /* choix valable pour cette session seulement */ }
+}
+function renderThemeChoices() {
+  const saved = document.documentElement.dataset.theme;
+  const now = THEMES.some((x) => x.id === saved) ? saved : 'nocturne';
+  if (saved && now === 'nocturne') delete document.documentElement.dataset.theme; // valeur inconnue : on l'ecarte
+  $('themes').replaceChildren(...THEMES.map((th) => {
+    const input = el('input', { type: 'radio', name: 'theme', value: th.id, checked: th.id === now });
+    input.onchange = () => applyTheme(th.id);
+    const swatch = el('span', { className: 'swatch' }, ...th.colors.map((c) => { const i = el('i'); i.style.background = c; return i; }));
+    return el('label', { className: 'theme' }, input, swatch, el('strong', { textContent: t(`theme.${th.id}`) }), el('span', { className: 'desc', textContent: t(`theme.${th.id}_desc`) }));
+  }));
+}
+function renderLanguageChoices() {
+  $('languages').replaceChildren(...['fr', 'en'].map((code) => {
+    const input = el('input', { type: 'radio', name: 'ui-language', value: code, checked: code === LANG });
+    input.onchange = () => changeLanguage(code);
+    return el('label', { className: 'theme lang' }, input, el('strong', { textContent: t(`lang.ui.${code}`) }));
+  }));
+}
+
+// Changer de langue : textes statiques, puis tout ce que main.js a construit, puis les messages venant de Rust.
+async function changeLanguage(code) {
+  setLanguage(code);
+  try { await invoke('set_lang', { lang: code }); } catch (e) { fail($('models-status'), e); }
+  await renderAll();
+}
+
+// ---------------------------------------------------------------- parametres : mises a jour
+function renderUpdate() {
+  $('upd-version').textContent = t('upd.installed', { version: appVersion });
+  const newer = !!updateInfo?.newer;
+  $('upd-card').hidden = !newer;
+  $('upd-badge').hidden = !newer;
+  if (!newer) return;
+  $('upd-badge').textContent = t('upd.badge', { latest: updateInfo.latest });
+  $('upd-new').textContent = t('upd.available', { latest: updateInfo.latest, current: updateInfo.current });
+  $('upd-notes').textContent = updateInfo.notes;
+  $('upd-size').textContent = updateInfo.asset ? t('upd.size', { name: updateInfo.asset.name, size: size(updateInfo.asset.size / 1048576) }) : '';
+}
+async function checkUpdate(silent) {
+  const st = $('upd-status');
+  if (!silent) say(st, t('upd.checking'));
+  try {
+    updateInfo = await invoke('check_update');
+    lsSet('voiceclone-update-last', String(Date.now()));
+    renderUpdate();
+    if (!silent) say(st, updateInfo.newer ? '' : t('upd.uptodate', { version: updateInfo.current }));
+  } catch (e) { if (!silent) fail(st, e); }
+}
+$('upd-check').onclick = () => checkUpdate(false);
+$('upd-open').onclick = () => invoke('open_release', { url: updateInfo.url }).catch((e) => fail($('upd-status'), e));
+$('upd-auto').checked = lsGet('voiceclone-update-check') !== 'off';
+$('upd-auto').onchange = () => lsSet('voiceclone-update-check', $('upd-auto').checked ? 'on' : 'off');
+$('upd-badge').onclick = () => { show('settings'); $('h-updates').scrollIntoView(); };
+
 // ---------------------------------------------------------------- parametres : carte graphique
-const gpuLabel = (d) => `${d.name} · ${d.description}${d.gpu && d.total_mb ? ` · ${(d.total_mb / 1024).toFixed(0)} Go` : ''}`;
-const TRI = { auto: 'Automatique (recommandé)', on: 'Activée', off: 'Désactivée' };
-for (const id of ['gpu-fa', 'gpu-clamp']) $(id).append(...Object.entries(TRI).map(([value, textContent]) => el('option', { value, textContent })));
+const gpuLabel = (d) => `${d.name} · ${d.description}${d.gpu && d.total_mb ? ` · ${t('gpu.gb', { n: (d.total_mb / 1024).toFixed(0) })}` : ''}`;
+function fillTriOptions() {
+  for (const id of ['gpu-fa', 'gpu-clamp']) {
+    const keep = $(id).value;
+    $(id).replaceChildren(...['auto', 'on', 'off'].map((value) => el('option', { value, textContent: t(`tri.${value}`) })));
+    if (keep) $(id).value = keep;
+  }
+}
 
 async function loadGpu() {
   const st = $('gpu-status');
@@ -380,21 +462,22 @@ async function loadGpu() {
   const target = choice === 'auto' ? best : byName(choice);
 
   $('gpu-summary').textContent = best
-    ? `Meilleur choix détecté : ${gpuLabel(best)}. ${g.active ? `Calcul en cours sur ${g.active}.` : 'Le modèle est chargé à la prochaine génération.'}`
-    : 'Aucun périphérique de calcul détecté.';
+    ? t('gpu.summary', { best: gpuLabel(best), state: g.active ? t('gpu.loaded', { name: g.active }) : t('gpu.not_loaded') })
+    : t('gpu.none');
   $('gpu-device').replaceChildren(
-    el('option', { value: 'auto', textContent: `Automatique : ${best ? best.name : 'processeur'} (recommandé)` }),
-    ...g.devices.map((d) => el('option', { value: d.name, textContent: gpuLabel(d) + (d.recommended ? ' · recommandé' : '') })));
+    el('option', { value: 'auto', textContent: t('gpu.auto', { name: best ? best.name : t('gpu.cpu_name') }) }),
+    ...g.devices.map((d) => el('option', { value: d.name, textContent: gpuLabel(d) + (d.recommended ? ` · ${t('gpu.recommended')}` : '') })));
   $('gpu-device').value = choice;
+  fillTriOptions();
   $('gpu-fa').value = g.fa;
   $('gpu-clamp').value = g.clamp;
 
   // Un choix manuel different du meilleur : on le dit et on propose de revenir au choix automatique.
   const hint = $('gpu-best-note');
   hint.hidden = !(choice !== 'auto' && best && target && target.name !== best.name);
-  hint.textContent = hint.hidden ? '' : `Le meilleur choix détecté est ${best.name} (${best.description}). Choisissez « Automatique » pour l'utiliser.`;
+  hint.textContent = hint.hidden ? '' : t('gpu.best_hint', { name: best.name, desc: best.description });
   $('gpu-nvidia').hidden = !g.nvidia_without_cuda;
-  $('gpu-note').textContent = g.note ? `Repli automatique : ${g.note}.` : '';
+  $('gpu-note').textContent = g.note ? t('gpu.fallback', { note: g.note }) : '';
   $('gpu-advanced').open ||= g.fa !== 'auto' || g.clamp !== 'auto';
   say(st, '');
 }
@@ -403,33 +486,72 @@ async function saveGpu() {
   try {
     await invoke('set_gpu', { device: $('gpu-device').value, fa: $('gpu-fa').value, clamp: $('gpu-clamp').value });
     await loadGpu();
-    say(st, 'Enregistré. Le modèle sera rechargé avec ce réglage à la prochaine génération.');
+    say(st, t('gpu.saved'));
   } catch (e) { fail(st, e); await loadGpu().catch(() => {}); }
 }
 for (const id of ['gpu-device', 'gpu-fa', 'gpu-clamp']) $(id).onchange = saveGpu;
 
+// ---------------------------------------------------------------- parametres : composants et outils
+let installing = null; // id du composant en cours d'installation
+async function installComponent(c) {
+  const st = $('comp-status');
+  if (!confirm(t(c.id === 'vulkan' ? 'comp.confirm_vulkan' : 'comp.confirm_cuda'))) return;
+  installing = c.id;
+  await loadComponents();
+  try {
+    const result = await invoke('install_component', { id: c.id });
+    say(st, t(result === 'launched' ? 'comp.done_launched' : 'comp.done_installed'));
+  } catch (e) { fail(st, e); }
+  installing = null;
+  await loadComponents();
+}
+
+async function loadComponents() {
+  const list = await invoke('components');
+  const open = (key, label) => { const b = el('button', { type: 'button', className: 'ghost', textContent: label }); b.onclick = () => invoke('open_official', { key }).catch((e) => fail($('comp-status'), e)); return b; };
+  $('comp-list').replaceChildren(...list.map((c) => {
+    const title = t(`comp.${c.id}`);
+    const stateKey = { mp3: 'comp.mp3_state', vulkan: c.state === 'installed' ? 'comp.vulkan_ok' : 'comp.vulkan_missing',
+      cuda: { not_applicable: 'comp.cuda_na', driver_missing: 'comp.cuda_driver', module_missing: 'comp.cuda_module', runtime_missing: 'comp.cuda_runtime', installed: 'comp.cuda_ok' }[c.state] }[c.id];
+    const ok = c.state === 'installed' || c.state === 'builtin';
+    const row = el('div', { className: 'row' });
+    if (installing === c.id) {
+      const bar = el('progress', { max: 100, value: 0 });
+      bar.id = 'comp-bar';
+      bar.setAttribute('aria-label', title);
+      const cancel = el('button', { type: 'button', className: 'ghost', textContent: t('common.cancel') });
+      cancel.onclick = () => invoke('cancel_component');
+      row.append(bar, cancel);
+    } else {
+      if (c.can_install) {
+        const b = el('button', { type: 'button', textContent: t(c.id === 'vulkan' ? 'comp.install_vulkan' : 'comp.install_cuda', { size: size(c.size_mb) }), disabled: installing !== null });
+        b.onclick = () => installComponent(c);
+        row.append(b);
+      }
+      if (c.id === 'vulkan' && c.state === 'missing') row.append(open('amd_drivers', t('comp.drivers_amd')), open('nvidia_drivers', t('comp.drivers_nvidia')), open('intel_drivers', t('comp.drivers_intel')));
+      if (c.id === 'cuda' && c.state === 'driver_missing') row.append(open('nvidia_drivers', t('comp.drivers_nvidia')));
+    }
+    return el('li', { className: `comp${ok ? ' ok' : ''}` }, el('strong', { textContent: title }), el('p', { className: 'state', textContent: t(stateKey) }), row.children.length ? row : '');
+  }));
+}
+
 // ---------------------------------------------------------------- parametres : modeles
 const progress = {}; // fichier -> { done, total } pendant un telechargement
-const size = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1).replace('.', ',')} Go` : `${mb} Mo`);
-const percent = (p) => (p.total ? Math.floor((p.done / p.total) * 100) : 0);
 
 async function loadModels() {
   const st = $('models-status');
   const m = await invoke('models');
-  $('models-source').textContent = m.source.replace('https://', '').replace('/resolve/main/', '');
-  $('models-dir').textContent = `Dossier : ${m.dir}`;
-  $('memory-state').textContent = m.loaded
-    ? 'Un modèle est chargé en mémoire (environ 2,5 Go de RAM, plus la mémoire de la carte graphique). Le décharger libère cette mémoire ; il sera rechargé à la prochaine génération.'
-    : 'Aucun modèle en mémoire. Il sera chargé à la prochaine génération.';
+  $('models-hint').textContent = t('models.hint', { source: m.source.replace('https://', '').replace('/resolve/main/', '') });
+  $('models-dir').textContent = t('mem.folder', { dir: m.dir });
+  $('memory-state').textContent = m.loaded ? t('mem.loaded') : t('mem.none');
   $('unload').disabled = !m.loaded;
-  $('unload').onclick = () => invoke('unload_model').then(() => Promise.all([loadModels(), loadGpu()])).then(() => say($('models-status'), 'Modèle déchargé.'), (e) => fail($('models-status'), e));
   $('model-list').replaceChildren(...m.models.map((x) => {
-    const state = [x.downloaded ? (x.active ? 'utilisé pour les générations' : 'installé') : 'non installé', x.loaded ? 'en mémoire' : ''].filter(Boolean).join(' · ');
+    const state = [x.downloaded ? t(x.active ? 'models.state_active' : 'models.state_installed') : t('models.state_missing'), x.loaded ? t('models.state_loaded') : ''].filter(Boolean).join(' · ');
     const row = el('li', { className: `model${x.active || (x.codec && x.downloaded) ? ' active' : ''}` },
       el('div', { className: 'grow' }, el('strong', { textContent: x.label }), el('span', { className: 'meta', textContent: `${size(x.size_mb)} · ${state}` })));
     const act = (label, fn, cls = '') => {
       const b = el('button', { type: 'button', className: cls, textContent: label });
-      b.setAttribute('aria-label', `${label} : ${x.label}`);
+      b.setAttribute('aria-label', t('models.action_aria', { action: label, label: x.label }));
       b.onclick = () => fn().catch((e) => fail(st, e));
       row.append(b);
     };
@@ -437,88 +559,103 @@ async function loadModels() {
       const p = progress[x.file] ?? { done: 0, total: 0 };
       const bar = el('progress', { max: 100, value: percent(p) });
       bar.dataset.file = x.file;
-      bar.setAttribute('aria-label', `Téléchargement de ${x.label}`);
+      bar.setAttribute('aria-label', t('models.progress_aria', { label: x.label }));
       const pct = el('span', { className: 'meta', textContent: `${percent(p)} %` });
       pct.dataset.pct = x.file;
       row.append(bar, pct);
-      act('Annuler', () => invoke('cancel_download', { file: x.file }));
+      act(t('common.cancel'), () => invoke('cancel_download', { file: x.file }));
     } else if (!x.downloaded) {
-      act(`Télécharger (${size(x.size_mb)})`, async () => {
+      act(t('models.download', { size: size(x.size_mb) }), async () => {
         progress[x.file] = { done: 0, total: 0 };
-        say(st, `Téléchargement de ${x.label}…`);
+        say(st, t('models.downloading', { label: x.label }));
         invoke('download_model', { file: x.file })
-          .then(() => say(st, `${x.label} est installé.`), (e) => fail(st, e))
+          .then(() => say(st, t('models.installed_done', { label: x.label })), (e) => fail(st, e))
           .finally(() => { delete progress[x.file]; loadModels().catch((e) => fail(st, e)); });
         await loadModels();
       });
     } else {
-      if (!x.codec && !x.active) act('Utiliser', async () => { await invoke('set_model', { file: x.file }); await loadModels(); say(st, `${x.label} sera utilisé à la prochaine génération.`); });
-      act('Supprimer', async () => {
-        if (!confirm(`Supprimer ${x.label} (${size(x.size_mb)}) du disque ? Il faudra le retélécharger pour s'en resservir.`)) return;
+      if (!x.codec && !x.active) act(t('models.use'), async () => { await invoke('set_model', { file: x.file }); await loadModels(); say(st, t('models.use_done', { label: x.label })); });
+      act(t('common.delete'), async () => {
+        if (!confirm(t('models.delete_confirm', { label: x.label, size: size(x.size_mb) }))) return;
         await invoke('delete_model', { file: x.file });
         await loadModels();
-        say(st, `${x.label} est supprimé.`);
+        say(st, t('models.deleted', { label: x.label }));
       }, 'ghost danger');
     }
     return row;
   }));
+  $('unload').onclick = () => invoke('unload_model').then(() => Promise.all([loadModels(), loadGpu()])).then(() => say($('models-status'), t('mem.unloaded')), (e) => fail($('models-status'), e));
 }
 
 $('open-models').onclick = () => invoke('open_models_dir').catch((e) => fail($('models-status'), e));
 
-// ---------------------------------------------------------------- parametres : apparence
-const THEMES = [
-  { id: 'nocturne', name: 'Nocturne', desc: 'Sombre, accent ambre', colors: ['#0f1217', '#1d2330', '#ffb03b'] },
-  { id: 'atelier', name: 'Atelier', desc: 'Clair, papier crème, titres en serif', colors: ['#f6f1e7', '#1d1b17', '#c2410c'] },
-  { id: 'console', name: 'Console', desc: 'Graphite et turquoise, style studio audio', colors: ['#0b0d0e', '#182022', '#2dd4bf'] },
-  { id: 'conversation', name: 'Conversation', desc: 'Clair et arrondi, générations en bulles de discussion', colors: ['#f1f2f7', '#ffffff', '#4338ca'] }
-];
-function applyTheme(id) {
-  if (id === 'nocturne') delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = id;
-  try { localStorage.setItem('voiceclone-theme', id); } catch { /* choix valable pour cette session seulement */ }
-}
-{
-  const saved = document.documentElement.dataset.theme;
-  const now = THEMES.some((t) => t.id === saved) ? saved : 'nocturne';
-  if (saved && now === 'nocturne') delete document.documentElement.dataset.theme; // valeur inconnue : on l'ecarte
-  $('themes').append(...THEMES.map((t) => {
-    const input = el('input', { type: 'radio', name: 'theme', value: t.id, checked: t.id === now });
-    input.onchange = () => applyTheme(t.id);
-    const swatch = el('span', { className: 'swatch' }, ...t.colors.map((c) => { const i = el('i'); i.style.background = c; return i; }));
-    return el('label', { className: 'theme' }, input, swatch, el('strong', { textContent: t.name }), el('span', { className: 'desc', textContent: t.desc }));
-  }));
-}
-
-function show(page) {
+function show(target) {
+  page = target;
   const settings = page === 'settings';
   $('settings').hidden = !settings;
   $('studio').hidden = settings;
   $('nav-settings').setAttribute('aria-pressed', settings);
   $('nav-studio').setAttribute('aria-pressed', !settings);
-  if (settings) {
-    loadModels().catch((e) => fail($('models-status'), e));
-    loadGpu().catch((e) => fail($('gpu-status'), e));
-  }
+  if (settings) loadSettings();
 }
 $('nav-studio').onclick = () => show('studio');
 $('nav-settings').onclick = () => show('settings');
 
+function loadSettings() {
+  renderUpdate();
+  loadModels().catch((e) => fail($('models-status'), e));
+  loadGpu().catch((e) => fail($('gpu-status'), e));
+  loadComponents().catch((e) => fail($('comp-status'), e));
+}
+
+// Tout ce qui depend de la langue est reconstruit : textes statiques, listes, messages venant de Rust (libelles des modeles...).
+let mcpInfo = null;
+function renderMcp() {
+  if (!mcpInfo) return;
+  $('mcp-text').textContent = mcpInfo.error ? t('mcp.stopped', { error: mcpInfo.error }) : t('mcp.active', { url: mcpInfo.url });
+  $('mcp').classList.toggle('error', !!mcpInfo.error);
+}
+async function renderAll() {
+  applyStatic();
+  fillLanguageOptions();
+  renderLanguageChoices();
+  renderThemeChoices();
+  renderMcp();
+  renderUpdate();
+  if (recorder) $('rec-label').textContent = t('samples.stop_rec', { time: '0:00' });
+  await loadProfiles();
+  await loadGenerations();
+  if (page === 'settings') loadSettings();
+}
+
 // ---------------------------------------------------------------- demarrage
 (async () => {
   try {
+    // Langue : celle enregistree par le coeur ; sinon celle du systeme, qu'on enregistre pour la version serveur aussi.
+    const saved = await invoke('get_lang');
+    if (saved) setLanguage(saved);
+    else await invoke('set_lang', { lang: LANG });
+    appVersion = await invoke('app_version');
+
     await listen('model-progress', ({ payload: p }) => {
       if (!progress[p.file]) return; // telechargement deja termine ou annule
       progress[p.file] = p;
       const bar = document.querySelector(`progress[data-file="${p.file}"]`), pct = document.querySelector(`[data-pct="${p.file}"]`);
       if (bar) bar.value = percent(p);
-      if (pct) pct.textContent = `${percent(p)} % · ${size(Math.round(p.done / 1048576))} sur ${size(Math.round(p.total / 1048576))}`;
+      if (pct) pct.textContent = t('models.progress', { pct: percent(p), done: size(Math.round(p.done / 1048576)), total: size(Math.round(p.total / 1048576)) });
     });
-    const mcp = await invoke('mcp_info');
-    $('mcp-text').textContent = mcp.error ? `Connecteur MCP arrêté : ${mcp.error}` : `Connecteur MCP actif · ${mcp.url}`;
-    $('mcp').classList.toggle('error', !!mcp.error);
+    await listen('component-progress', ({ payload: p }) => {
+      const bar = $('comp-bar');
+      if (bar) bar.value = percent(p);
+      const key = { manifest: 'comp.stage_manifest', verify: 'comp.stage_verify', extract: 'comp.stage_extract', launch: 'comp.stage_launch' }[p.stage];
+      say($('comp-status'), key ? t(key) : t('comp.stage_download', { pct: percent(p) }));
+    });
+    mcpInfo = await invoke('mcp_info');
     await listen('changed', () => loadGenerations().catch((e) => fail($('status'), e)));
-    await loadProfiles();
-    await loadGenerations();
+    await renderAll();
+
+    // Detection automatique d'une nouvelle version : une fois par jour au plus, sauf si l'utilisateur l'a desactivee.
+    const last = Number(lsGet('voiceclone-update-last') ?? 0);
+    if (lsGet('voiceclone-update-check') !== 'off' && Date.now() - last > 24 * 3600 * 1000) checkUpdate(true);
   } catch (e) { fail($('status'), e); }
 })();

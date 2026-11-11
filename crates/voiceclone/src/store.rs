@@ -74,7 +74,7 @@ impl Store {
     fn one(&self, sql: &str, p: impl rusqlite::Params, what: &str) -> R<()> {
         match self.0.execute(sql, p).map_err(e)? {
             1 => Ok(()),
-            _ => Err(format!("{what} introuvable")),
+            _ => Err(tr!("{} introuvable", "{} not found", what)),
         }
     }
 
@@ -82,13 +82,13 @@ impl Store {
     fn path(&self, table: &str, id: i64) -> R<String> {
         self.0
             .query_row(&format!("SELECT audio_path FROM {table} WHERE id=?1"), [id], |r| r.get(0))
-            .map_err(|_| format!("élément {id} introuvable"))
+            .map_err(|_| tr!("élément {} introuvable", "item {} not found", id))
     }
 
     pub fn add_profile(&self, name: &str, language: &str) -> R<i64> {
         self.0
             .execute("INSERT INTO profiles(name,language) VALUES(?1,?2)", params![name, language])
-            .map_err(|x| format!("profil « {name} » : {x}"))?;
+            .map_err(|x| tr!("profil « {} » : {}", "voice \"{}\": {}", name, x))?;
         Ok(self.0.last_insert_rowid())
     }
 
@@ -105,8 +105,8 @@ impl Store {
                 |r| Ok(ProfileRef { id: r.get(0)?, name: r.get(1)?, language: r.get(2)? }),
             )
             .map_err(|_| match name {
-                Some(n) => format!("profil introuvable : {n}"),
-                None => "aucun profil de voix".to_string(),
+                Some(n) => tr!("profil introuvable : {}", "voice not found: {}", n),
+                None => tr!("aucun profil de voix", "no voice profile"),
             })
     }
 
@@ -125,7 +125,7 @@ impl Store {
     pub fn add_sample(&self, profile_id: i64, audio_path: &str, ref_text: &str) -> R<i64> {
         self.0
             .execute("INSERT INTO samples(profile_id,audio_path,ref_text) VALUES(?1,?2,?3)", params![profile_id, audio_path, ref_text])
-            .map_err(|_| format!("profil {profile_id} introuvable"))?;
+            .map_err(|_| tr!("profil {} introuvable", "voice {} not found", profile_id))?;
         Ok(self.0.last_insert_rowid())
     }
 
@@ -162,7 +162,7 @@ impl Store {
             .query_row("SELECT text,audio_path,enhanced_path FROM generations WHERE id=?1", [id], |r| {
                 Ok(Generation { text: r.get(0)?, original: r.get(1)?, enhanced: r.get(2)? })
             })
-            .map_err(|_| format!("génération {id} introuvable"))
+            .map_err(|_| tr!("génération {} introuvable", "generation {} not found", id))
     }
 
     pub fn set_enhanced_path(&self, id: i64, path: Option<&str>) -> R<()> {

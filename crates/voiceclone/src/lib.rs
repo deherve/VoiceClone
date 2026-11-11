@@ -1,9 +1,13 @@
 //! Coeur de VoiceClone : utilise par le serveur MCP sans fenetre et par l'application Tauri.
+#[macro_use]
+pub mod i18n;
 pub mod audio;
+pub mod components;
 pub mod engine;
 pub mod mcp;
 pub mod models;
 mod store;
+pub mod update;
 
 use engine::{Engine, Voice};
 use serde_json::{json, Value};
@@ -18,12 +22,16 @@ pub(crate) fn e<E: ToString>(x: E) -> String {
 const MAX_CHUNK_CHARS: usize = 300;
 const DEFAULT_SEED: i64 = 7; // meme graine que les generations Voicebox existantes : resultat reproductible
 
-/// Dossier de donnees : `VOICECLONE_DATA`, sinon `%APPDATA%\VoiceClone`.
+/// Dossier de donnees : `VOICECLONE_DATA`, sinon `data\` a cote de l'executable si un fichier `portable` s'y trouve
+/// (version autonome : tout reste dans le dossier, rien dans le profil Windows), sinon `%APPDATA%\VoiceClone`.
 pub fn data_dir() -> R<PathBuf> {
     if let Ok(d) = std::env::var("VOICECLONE_DATA") {
         return Ok(d.into());
     }
-    Ok(PathBuf::from(std::env::var("APPDATA").map_err(|_| "APPDATA non défini")?).join("VoiceClone"))
+    if let Some(dir) = std::env::current_exe().ok().and_then(|x| x.parent().map(Path::to_path_buf)).filter(|d| d.join("portable").is_file()) {
+        return Ok(dir.join("data"));
+    }
+    Ok(PathBuf::from(std::env::var("APPDATA").map_err(|_| tr!("APPDATA non défini", "APPDATA is not set"))?).join("VoiceClone"))
 }
 
 fn now_ms() -> R<u128> {
@@ -52,9 +60,14 @@ pub struct App {
     on_change: Mutex<Option<Hook>>,
     // Telechargements en cours : nom du fichier -> drapeau d'annulation.
     downloads: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    // Installation d'un composant (Vulkan, CUDA) : une seule a la fois, annulable.
+    component_busy: AtomicBool,
+    component_cancel: AtomicBool,
 }
 
-const BUSY: &str = "une génération est en cours, réessayez dans un instant";
+fn busy() -> String {
+    tr!("une génération est en cours, réessayez dans un instant", "a generation is in progress, try again in a moment")
+}
 
 impl App {
     pub fn open(dir: PathBuf) -> R<Self> {
@@ -62,13 +75,50 @@ impl App {
             fs::create_dir_all(dir.join(d)).map_err(e)?;
         }
         let store = Store::open(&dir.join("voiceclone.db"))?;
+        // La langue choisie dans Parametres vaut aussi pour la version serveur (messages d'erreur MCP).
+        if let Some(l) = store.setting("lang") {
+            i18n::set_lang(&l);
+        }
         Ok(App {
             dir,
             store: Mutex::new(store),
             rt: Mutex::new(Runtime { engine: None, voices: HashMap::new(), device: None, note: None }),
             on_change: Mutex::new(None),
             downloads: Mutex::new(HashMap::new()),
+            component_busy: AtomicBool::new(false),
+            component_cancel: AtomicBool::new(false),
         })
+    }
+
+    pub fn data_dir(&self) -> PathBuf {
+        self.dir.clone()
+    }
+
+    /// Installe un composant manquant depuis sa source officielle (voir `components`). Une seule installation a la fois.
+    pub fn install_component(&self, id: &str, progress: &dyn Fn(&str, u64, u64)) -> R<&'static str> {
+        if self.component_busy.swap(true, Ordering::SeqCst) {
+            return Err(tr!("une installation est déjà en cours", "an installation is already in progress"));
+        }
+        self.component_cancel.store(false, Ordering::SeqCst);
+        let r = components::install(id, &self.dir, &self.component_cancel, progress);
+        self.component_busy.store(false, Ordering::SeqCst);
+        r
+    }
+
+    pub fn cancel_component(&self) {
+        self.component_cancel.store(true, Ordering::SeqCst);
+    }
+
+    /// Langue enregistree (None tant que l'utilisateur n'en a pas choisi une : l'interface propose alors celle du systeme).
+    pub fn saved_lang(&self) -> Option<String> {
+        self.store.lock().unwrap().setting("lang").filter(|l| i18n::LANGS.contains(&l.as_str()))
+    }
+
+    pub fn set_lang(&self, lang: &str) -> R<()> {
+        if !i18n::set_lang(lang) {
+            return Err(tr!("langue inconnue : {}", "unknown language: {}", lang));
+        }
+        self.store.lock().unwrap().set_setting("lang", lang)
     }
 
     /// Dossier des modeles : `VOICECLONE_MODELS` s'il est defini (modeles partages entre installations), sinon `<donnees>\models`.
@@ -92,7 +142,8 @@ impl App {
         let downloading = self.downloads.lock().unwrap();
         let list: Vec<Value> = models::CATALOG
             .iter()
-            .map(|&(file, label, mb)| {
+            .map(|&(file, label_fr, label_en, mb)| {
+                let label = if i18n::is_en() { label_en } else { label_fr };
                 let codec = file == models::CODEC;
                 json!({"file": file, "label": label, "size_mb": mb, "codec": codec, "downloaded": dir.join(file).exists(),
                     "downloading": downloading.contains_key(file), "active": file == active,
@@ -105,10 +156,10 @@ impl App {
     /// Le prochain `speak` chargera ce modele a la place de l'ancien.
     pub fn set_talker(&self, file: &str) -> R<()> {
         if !models::is_known(file) || file == models::CODEC {
-            return Err(format!("modèle inconnu : {file}"));
+            return Err(tr!("modèle inconnu : {}", "unknown model: {}", file));
         }
         if !self.models_dir().join(file).exists() {
-            return Err("ce modèle n'est pas encore téléchargé".into());
+            return Err(tr!("ce modèle n'est pas encore téléchargé", "this model is not downloaded yet"));
         }
         self.store.lock().unwrap().set_setting("talker", file)
     }
@@ -116,13 +167,13 @@ impl App {
     /// Telecharge un modele du catalogue (bloquant). `progress(octets recus, total)`.
     pub fn download_model(&self, file: &str, progress: &dyn Fn(u64, u64)) -> R<()> {
         if !models::is_known(file) {
-            return Err(format!("modèle inconnu : {file}"));
+            return Err(tr!("modèle inconnu : {}", "unknown model: {}", file));
         }
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut d = self.downloads.lock().unwrap();
             if d.contains_key(file) {
-                return Err("téléchargement déjà en cours".into());
+                return Err(tr!("téléchargement déjà en cours", "download already in progress"));
             }
             d.insert(file.into(), cancel.clone());
         }
@@ -139,7 +190,7 @@ impl App {
 
     /// Libere la RAM et la VRAM du modele ; il sera recharge au prochain `speak`.
     pub fn unload(&self) -> R<()> {
-        let mut rt = self.rt.try_lock().map_err(|_| BUSY)?;
+        let mut rt = self.rt.try_lock().map_err(|_| busy())?;
         rt.voices.clear();
         rt.engine = None;
         rt.device = None;
@@ -169,10 +220,15 @@ impl App {
                 order.retain(|n| *n != choice);
                 order.insert(0, choice.clone());
             } else {
-                notes.push(format!("{choice} est introuvable, choix automatique"));
+                notes.push(tr!("{} est introuvable, choix automatique", "{} not found, automatic choice", choice));
             }
         }
         let dir = self.models_dir();
+        for f in [talker, models::CODEC] {
+            if !dir.join(f).exists() {
+                return Err(tr!("modèle absent ({}) : téléchargez-le dans Paramètres", "model missing ({}): download it in Settings", f));
+            }
+        }
         for name in &order {
             let desc = devs.iter().find(|d| d.name == *name).map_or("", |d| d.description.as_str());
             let cuda = name.to_ascii_lowercase().starts_with("cuda");
@@ -182,12 +238,10 @@ impl App {
             let clamp_fp16 = match clamp.as_str() { "on" => true, "off" => false, _ => cuda && engine::needs_clamp(desc) };
             match Engine::load(&dir.join(talker), &dir.join(models::CODEC), name, use_fa, clamp_fp16) {
                 Ok(loaded) => return Ok((loaded, name.clone(), (!notes.is_empty()).then(|| notes.join(" · ")))),
-                // Un modele absent ne depend pas du peripherique : inutile d'essayer les autres.
-                Err(x) if x.starts_with("modèle absent") => return Err(x),
-                Err(x) => notes.push(format!("{name} indisponible ({x})")),
+                Err(x) => notes.push(tr!("{} indisponible ({})", "{} unavailable ({})", name, x)),
             }
         }
-        Err(format!("aucun périphérique n'a pu charger le modèle : {}", notes.join(" · ")))
+        Err(tr!("aucun périphérique n'a pu charger le modèle : {}", "no device could load the model: {}", notes.join(" · ")))
     }
 
     /// Etat de la page Parametres : peripheriques detectes, meilleur choix, choix actuel, moteur en cours.
@@ -215,11 +269,11 @@ impl App {
     /// des la prochaine generation.
     pub fn set_gpu(&self, device: &str, fa: &str, clamp: &str) -> R<()> {
         if device != "auto" && !engine::devices().iter().any(|d| d.name == device) {
-            return Err(format!("périphérique inconnu : {device}"));
+            return Err(tr!("périphérique inconnu : {}", "unknown device: {}", device));
         }
         for v in [fa, clamp] {
             if !matches!(v, "auto" | "on" | "off") {
-                return Err(format!("valeur inconnue : {v}"));
+                return Err(tr!("valeur inconnue : {}", "unknown value: {}", v));
             }
         }
         self.unload()?;
@@ -231,13 +285,13 @@ impl App {
 
     pub fn delete_model(&self, file: &str) -> R<()> {
         if !models::is_known(file) {
-            return Err(format!("modèle inconnu : {file}"));
+            return Err(tr!("modèle inconnu : {}", "unknown model: {}", file));
         }
         if self.downloads.lock().unwrap().contains_key(file) {
-            return Err("téléchargement en cours : annulez-le d'abord".into());
+            return Err(tr!("téléchargement en cours : annulez-le d'abord", "download in progress: cancel it first"));
         }
         // Le moteur garde le fichier ouvert : on le decharge s'il s'en sert.
-        let mut rt = self.rt.try_lock().map_err(|_| BUSY)?;
+        let mut rt = self.rt.try_lock().map_err(|_| busy())?;
         if rt.engine.as_ref().is_some_and(|(f, _)| f == file || file == models::CODEC) {
             rt.voices.clear();
             rt.engine = None;
@@ -267,7 +321,7 @@ impl App {
     pub fn create_profile(&self, name: &str, language: &str) -> R<i64> {
         let name = name.trim();
         if name.is_empty() {
-            return Err("nom de voix vide".into());
+            return Err(tr!("nom de voix vide", "empty voice name"));
         }
         self.store.lock().unwrap().add_profile(name, language)
     }
@@ -281,7 +335,7 @@ impl App {
     /// Ajoute un echantillon (PCM mono 24 kHz, duree libre) au profil. La transcription se regle ensuite.
     pub fn add_sample(&self, profile_id: i64, pcm: &[f32]) -> R<i64> {
         if pcm.len() < audio::SR as usize {
-            return Err("échantillon trop court (moins d'une seconde)".into());
+            return Err(tr!("échantillon trop court (moins d'une seconde)", "sample too short (under one second)"));
         }
         let dir = self.dir.join("profiles").join(profile_id.to_string());
         fs::create_dir_all(&dir).map_err(e)?;
@@ -356,19 +410,20 @@ impl App {
         let slug: String = g.text.chars().take(40).map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
         let slug = slug.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
         let suffix = if g.enhanced.is_some() { "-ameliore" } else { "" };
-        Ok(format!("{}{suffix}.{format}", if slug.is_empty() { "voix" } else { &slug }))
+        let fallback = if i18n::is_en() { "voice" } else { "voix" };
+        Ok(format!("{}{suffix}.{format}", if slug.is_empty() { fallback } else { &slug }))
     }
 
     /// Ecrit la version en vigueur de la generation (amelioree ou non) vers `dest`, en "wav" ou "mp3".
     /// L'extension est completee si le nom choisi n'a pas celle du format. Retourne le chemin ecrit.
     pub fn export_to(&self, id: i64, format: &str, dest: &Path) -> R<PathBuf> {
         if !matches!(format, "wav" | "mp3") {
-            return Err(format!("format inconnu : {format}"));
+            return Err(tr!("format inconnu : {}", "unknown format: {}", format));
         }
         let g = self.store.lock().unwrap().generation(id)?;
         let mut dest = dest.to_path_buf();
         if !dest.extension().is_some_and(|x| x.eq_ignore_ascii_case(format)) {
-            let mut name = dest.file_name().ok_or("nom de fichier vide")?.to_os_string();
+            let mut name = dest.file_name().ok_or_else(|| tr!("nom de fichier vide", "empty file name"))?.to_os_string();
             name.push(format!(".{format}"));
             dest.set_file_name(name);
         }
@@ -410,7 +465,7 @@ impl App {
         Ok(match kind {
             "generation" => store.generation(id)?.active().to_string(),
             "sample" => store.sample_path(id)?,
-            k => return Err(format!("type audio inconnu : {k}")),
+            k => return Err(tr!("type audio inconnu : {}", "unknown audio type: {}", k)),
         }
         .into())
     }
@@ -420,12 +475,12 @@ impl App {
     pub fn speak(&self, text: &str, profile: Option<&str>, lang: Option<&str>, seed: Option<i64>, output: Option<&Path>, enhanced: bool) -> R<Value> {
         let chunks = audio::split_text(text, MAX_CHUNK_CHARS);
         if chunks.is_empty() {
-            return Err("texte vide".into());
+            return Err(tr!("texte vide", "empty text"));
         }
         if let Some(o) = output {
             let wav = o.extension().is_some_and(|x| x.eq_ignore_ascii_case("wav"));
             if !o.is_absolute() || !wav {
-                return Err("output_path doit être un chemin absolu en .wav".into());
+                return Err(tr!("output_path doit être un chemin absolu en .wav", "output_path must be an absolute path ending in .wav"));
             }
         }
         let (p, samples) = {
@@ -435,7 +490,7 @@ impl App {
             (p, samples)
         };
         if samples.is_empty() {
-            return Err(format!("la voix « {} » n'a aucun échantillon", p.name));
+            return Err(tr!("la voix « {} » n'a aucun échantillon", "voice \"{}\" has no sample", p.name));
         }
         let signature: String = samples.iter().map(|s| format!("{}:{}|", s.id, s.ref_text)).collect();
         let (lang, seed) = (lang.unwrap_or(&p.language), seed.unwrap_or(DEFAULT_SEED));
@@ -529,7 +584,7 @@ impl App {
                 st.query_map([vb_id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?.collect::<Result<_, _>>().map_err(e)?;
             for (rel, text) in samples {
                 let src = vb_dir.join(&rel);
-                let to = dest.join(src.file_name().ok_or("chemin d'échantillon invalide")?);
+                let to = dest.join(src.file_name().ok_or_else(|| tr!("chemin d'échantillon invalide", "invalid sample path"))?);
                 fs::copy(&src, &to).map_err(|x| format!("{} : {x}", src.display()))?;
                 store.add_sample(id, &to.to_string_lossy(), &text)?;
             }

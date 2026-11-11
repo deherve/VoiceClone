@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{ipc::{InvokeBody, Request, Response}, Emitter, State};
-use voiceclone::{data_dir, mcp, App, R};
+use voiceclone::{components, data_dir, mcp, tr, update, App, R};
 
 type Core<'a> = State<'a, Arc<App>>;
 
@@ -43,9 +43,9 @@ fn add_sample(app: Core<'_>, request: Request<'_>) -> R<i64> {
         .get("x-profile")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
-        .ok_or("en-tête x-profile manquant")?;
+        .ok_or_else(|| tr!("en-tête x-profile manquant", "missing x-profile header"))?;
     let InvokeBody::Raw(bytes) = request.body() else {
-        return Err("corps audio attendu".into());
+        return Err(tr!("corps audio attendu", "audio body expected"));
     };
     let pcm: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
     app.add_sample(profile_id, &pcm)
@@ -87,6 +87,74 @@ fn audio(app: Core<'_>, kind: String, id: i64) -> R<Response> {
     Ok(Response::new(std::fs::read(&path).map_err(|x| format!("{} : {x}", path.display()))?))
 }
 
+// ---------------------------------------------------------------- langue, version, mises a jour, composants
+/// Langue enregistree (None au premier lancement : l'interface propose celle du systeme).
+#[tauri::command]
+fn get_lang(app: Core<'_>) -> Option<String> {
+    app.saved_lang()
+}
+
+#[tauri::command]
+fn set_lang(app: Core<'_>, lang: String) -> R<()> {
+    app.set_lang(&lang)
+}
+
+#[tauri::command]
+fn app_version() -> String {
+    update::current_version()
+}
+
+/// Interroge GitHub (une requete, aucune donnee envoyee) : nouvelle version disponible ou non.
+#[tauri::command]
+async fn check_update() -> R<Value> {
+    tauri::async_runtime::spawn_blocking(|| update::check(&update::current_version())).await.map_err(|x| x.to_string())?
+}
+
+fn open_in_browser(url: &str) -> R<()> {
+    std::process::Command::new("explorer").arg(url).spawn().map(|_| ()).map_err(|x| x.to_string())
+}
+
+/// Ouvre la page d'une release du depot, et seulement elle.
+#[tauri::command]
+fn open_release(url: String) -> R<()> {
+    if !update::is_release_url(&url) {
+        return Err(tr!("adresse refusée", "address refused"));
+    }
+    open_in_browser(&url)
+}
+
+/// Ouvre une page officielle de la liste fermee (pilotes NVIDIA/AMD/Intel, LunarG).
+#[tauri::command]
+fn open_official(key: String) -> R<()> {
+    open_in_browser(components::official_page(&key).ok_or_else(|| tr!("page inconnue", "unknown page"))?)
+}
+
+#[tauri::command]
+async fn components(app: Core<'_>) -> R<Value> {
+    let dir = app.data_dir();
+    tauri::async_runtime::spawn_blocking(move || components::status(&dir)).await.map_err(|x| x.to_string())
+}
+
+/// Installe un composant manquant depuis sa source officielle ; progression par l'evenement "component-progress".
+#[tauri::command]
+async fn install_component(app: Core<'_>, handle: tauri::AppHandle, id: String) -> R<String> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = id.clone();
+        app.install_component(&id, &move |stage, done, total| {
+            let _ = handle.emit("component-progress", json!({"id": name, "stage": stage, "done": done, "total": total}));
+        })
+        .map(str::to_string)
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+#[tauri::command]
+fn cancel_component(app: Core<'_>) {
+    app.cancel_component()
+}
+
 /// Forme d'onde (40 barres de 0 a 100) d'une generation ou d'un echantillon, calculee hors du thread de l'interface.
 #[tauri::command]
 async fn waveform(app: Core<'_>, kind: String, id: i64) -> R<Vec<u8>> {
@@ -110,7 +178,7 @@ async fn download(app: Core<'_>, id: i64, format: String) -> R<Option<String>> {
         let name = app.export_name(id, &format)?;
         let start = app.export_dir().or_else(|| std::env::var_os("USERPROFILE").map(|h| std::path::Path::new(&h).join("Downloads")));
         let mut dialog = rfd::FileDialog::new()
-            .set_title(if format == "mp3" { "Enregistrer l'audio en MP3" } else { "Enregistrer l'audio en WAV" })
+            .set_title(if format == "mp3" { tr!("Enregistrer l'audio en MP3", "Save the audio as MP3") } else { tr!("Enregistrer l'audio en WAV", "Save the audio as WAV") })
             .set_file_name(name)
             .add_filter(format.to_uppercase(), &[format.as_str()]);
         if let Some(dir) = start {
@@ -218,6 +286,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
+            get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

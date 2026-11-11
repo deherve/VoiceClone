@@ -83,7 +83,19 @@ label { display: block; font-size: 12.5px; color: var(--muted); margin: 8px 0 4p
 .sample textarea { margin-top: 8px; font-size: 12.5px; line-height: 1.5; background: var(--panel); field-sizing: content; min-height: 4.5em; resize: none; overflow: hidden; }
 .sample .grow { font-weight: 600; white-space: nowrap; }
 blockquote { margin: 10px 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 8px 8px 0; font-size: 13.5px; }
-blockquote::before { content: "Texte à lire : "; color: var(--accent); font-weight: 600; }
+blockquote strong { color: var(--accent); }
+
+/* ---- mises a jour et composants */
+.badge { cursor: pointer; color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 600; min-height: 0; }
+.card { border: 1px solid var(--accent); border-radius: var(--r-card); padding: 14px 16px; margin: 4px 0 10px; background: var(--panel); }
+.card h3 { margin: 10px 0 4px; }
+.notes { white-space: pre-wrap; max-height: 220px; overflow-y: auto; margin: 0 0 10px; font-size: 13px; color: var(--muted); user-select: text; }
+label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+label.inline input { width: auto; }
+.comp { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: var(--r-card); padding: 12px 14px; background: var(--panel); }
+.comp .row { gap: 8px; }
+.comp .state { color: var(--muted); font-size: 13px; margin: 0; }
+.comp.ok { border-color: var(--ok); }
 
 /* ---- saisie */
 #text { font-family: var(--font-display); flex: 1; min-height: 160px; font-size: 20px; line-height: 1.6; padding: 26px 28px; resize: none; background: var(--panel); border-radius: 16px; }

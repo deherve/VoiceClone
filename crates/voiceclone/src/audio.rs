@@ -9,7 +9,7 @@ pub fn read_wav_24k(path: &Path) -> R<Vec<f32>> {
     let s = r.spec();
     // shortcut: 24 kHz mono exige, conversion (reechantillonnage, stereo) a ajouter avec l'import/micro (etape 3).
     if s.sample_rate != SR || s.channels != 1 {
-        return Err(format!("{} : 24 kHz mono requis (reçu {} Hz, {} canaux)", path.display(), s.sample_rate, s.channels));
+        return Err(tr!("{} : 24 kHz mono requis (reçu {} Hz, {} canaux)", "{}: 24 kHz mono required (got {} Hz, {} channels)", path.display(), s.sample_rate, s.channels));
     }
     match s.sample_format {
         hound::SampleFormat::Float => r.samples::<f32>().collect::<Result<_, _>>().map_err(e),
@@ -99,7 +99,7 @@ fn soft_limit(x: f32) -> f32 {
 /// MP3 mono 24 kHz, 128 kb/s.
 pub fn encode_mp3(pcm: &[f32]) -> R<Vec<u8>> {
     use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, MonoPcm, Quality};
-    let mut b = Builder::new().ok_or("encodeur MP3 indisponible")?;
+    let mut b = Builder::new().ok_or_else(|| tr!("encodeur MP3 indisponible", "MP3 encoder unavailable"))?;
     b.set_num_channels(1).map_err(e)?;
     b.set_sample_rate(SR).map_err(e)?;
     b.set_brate(Bitrate::Kbps128).map_err(e)?;

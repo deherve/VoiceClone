@@ -60,3 +60,13 @@ Les deux sont modifiables dans Paramètres › Carte graphique › Options avanc
 - Modèles GGUF téléchargés depuis [Serveurperso/Qwen3-TTS-GGUF](https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF) sur Hugging Face
   (non inclus dans ce dépôt ; leurs licences s'appliquent).
 - Interface : [Tauri](https://tauri.app). MP3 : LAME (via `mp3lame-encoder`).
+
+## Publier une version
+
+```powershell
+# 1. aligner `version` dans crates/app/Cargo.toml, commit, push
+# 2. compiler, assembler le zip (exe, DLL, licences) et créer la release GitHub
+.\scripts\release.ps1 -Version 0.1.1 -Notes "Ce qui change"
+```
+
+Les releases sont construites sur cette machine : il n'y a pas d'intégration continue (le moteur demande le Vulkan SDK et Visual Studio).

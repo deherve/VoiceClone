@@ -416,7 +416,8 @@ impl App {
     }
 
     /// Genere `text` avec la voix du profil. Le modele est charge au premier appel puis reste en memoire.
-    pub fn speak(&self, text: &str, profile: Option<&str>, lang: Option<&str>, seed: Option<i64>, output: Option<&Path>) -> R<Value> {
+    /// `enhanced` : egaliseur + normalisation (comme le bouton « Amelioration ») ; `output` recoit alors cette version.
+    pub fn speak(&self, text: &str, profile: Option<&str>, lang: Option<&str>, seed: Option<i64>, output: Option<&Path>, enhanced: bool) -> R<Value> {
         let chunks = audio::split_text(text, MAX_CHUNK_CHARS);
         if chunks.is_empty() {
             return Err("texte vide".into());
@@ -480,23 +481,33 @@ impl App {
 
         let stored = self.dir.join("generations").join(format!("{}.wav", now_ms()?));
         audio::write_wav(&stored, &pcm)?;
-        let path = match output {
-            Some(o) => {
-                if let Some(parent) = o.parent() {
-                    fs::create_dir_all(parent).map_err(e)?;
-                }
-                fs::copy(&stored, o).map_err(|x| format!("{} : {x}", o.display()))?;
-                o.to_path_buf()
-            }
-            None => stored.clone(),
-        };
         let duration = pcm.len() as f64 / audio::SR as f64;
         let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed)?;
+        // La generation existe des maintenant dans l'historique ; si la suite echoue on la retire pour ne pas laisser d'orphelin.
+        let finish = || -> R<PathBuf> {
+            if enhanced {
+                self.set_enhanced(id, true)?;
+            }
+            let active = self.audio_path("generation", id)?; // version amelioree si activee, sinon originale
+            let Some(o) = output else { return Ok(active) };
+            if let Some(parent) = o.parent() {
+                fs::create_dir_all(parent).map_err(e)?;
+            }
+            fs::copy(&active, o).map_err(|x| format!("{} : {x}", o.display()))?;
+            Ok(o.to_path_buf())
+        };
+        let path = match finish() {
+            Ok(p) => p,
+            Err(x) => {
+                let _ = self.delete_generation(id);
+                return Err(x);
+            }
+        };
         if let Some(hook) = &*self.on_change.lock().unwrap() {
             hook();
         }
         Ok(json!({"id": id, "path": path, "duration_sec": (duration * 100.0).round() / 100.0, "profile": p.name,
-            "seed": seed, "elapsed_sec": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0}))
+            "seed": seed, "enhanced": enhanced, "elapsed_sec": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0}))
     }
 
     /// Copie les profils clones de Voicebox (dossier de donnees `sh.voicebox.app`), sans y toucher.

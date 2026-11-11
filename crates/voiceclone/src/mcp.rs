@@ -15,6 +15,7 @@ fn tools() -> Value {
             "profile": {"type": "string", "description": "Nom du profil de voix (voir list_profiles). Par défaut : le premier profil."},
             "output_path": {"type": "string", "description": "Chemin absolu .wav où copier le résultat (ex. dossier public d'un projet Remotion)."},
             "language": {"type": "string", "description": "Nom de langue Qwen3-TTS (french, english...). Par défaut : celle du profil."},
+            "enhanced": {"type": "boolean", "description": "true : version améliorée (égaliseur de voix + volume normalisé à -18 dBFS). Le fichier écrit dans output_path est alors cette version ; l'original n'est pas conservé hors de l'application. Par défaut false."},
             "seed": {"type": "integer", "description": "Graine d'échantillonnage. Par défaut 7 (résultat reproductible)."}}}},
         {"name": "list_profiles", "description": "Liste les profils de voix clonées.",
          "inputSchema": {"type": "object", "properties": {}}},
@@ -27,7 +28,7 @@ fn call(app: &App, p: &Value) -> Value {
     let a = &p["arguments"];
     let r = match p["name"].as_str().unwrap_or("") {
         "speak" => match a["text"].as_str() {
-            Some(t) => app.speak(t, a["profile"].as_str(), a["language"].as_str(), a["seed"].as_i64(), a["output_path"].as_str().map(Path::new)),
+            Some(t) => app.speak(t, a["profile"].as_str(), a["language"].as_str(), a["seed"].as_i64(), a["output_path"].as_str().map(Path::new), a["enhanced"].as_bool().unwrap_or(false)),
             None => Err("paramètre « text » requis".into()),
         },
         "list_profiles" => app.list_profiles(),
@@ -147,7 +148,7 @@ mod tests {
         assert!(wav.exists());
         app.delete_sample(sid).unwrap();
         assert!(!wav.exists() && app.delete_sample(sid).is_err());
-        assert!(app.speak("Bonjour", Some("test"), None, None, None).unwrap_err().contains("aucun échantillon"));
+        assert!(app.speak("Bonjour", Some("test"), None, None, None, true).unwrap_err().contains("aucun échantillon"));
         app.delete_profile(id).unwrap();
         // Modeles : rien d'installe dans ce dossier de test, choix et noms hors catalogue refuses.
         let m = app.models();

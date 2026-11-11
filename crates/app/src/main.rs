@@ -75,7 +75,7 @@ fn delete_generation(app: Core<'_>, id: i64) -> R<()> {
 #[tauri::command]
 async fn speak(app: Core<'_>, text: String, profile: String) -> R<Value> {
     let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || app.speak(&text, Some(&profile), None, None, None))
+    tauri::async_runtime::spawn_blocking(move || app.speak(&text, Some(&profile), None, None, None, false))
         .await
         .map_err(|x| x.to_string())?
 }

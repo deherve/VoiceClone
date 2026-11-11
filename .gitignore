@@ -12,3 +12,9 @@
 
 # Genere par tauri-build
 /crates/app/gen/
+
+# Echantillons de voix d'exemple du moteur (vendor/qwentts/examples) : on ne distribue aucune voix
+/vendor/qwentts/examples/*.wav
+/vendor/qwentts/examples/*.spk
+/vendor/qwentts/examples/*.rvq
+/vendor/qwentts/examples/freeman.*

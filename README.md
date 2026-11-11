@@ -106,7 +106,7 @@ Publishing a version: `scripts\bump-version.ps1`, edit `CHANGELOG.md`, commit an
 
 ### Third-party components and licence
 
-- `vendor/qwentts`: a copy of commit `de2ad83` of [ServeurpersoCom/qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) (MIT, see `vendor/qwentts/LICENSE` and `vendor/qwentts/ggml/LICENSE`), a C++ port of Qwen3-TTS (Alibaba, Qwen team).
+- `vendor/qwentts`: a copy of commit `de2ad83` of [ServeurpersoCom/qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) (MIT, see `vendor/qwentts/LICENSE` and `vendor/qwentts/ggml/LICENSE`), a C++ port of Qwen3-TTS (Alibaba, Qwen team). The copy does not include the example voice samples of the engine (`examples/freeman.*`) and the scripts that use them: no voice is distributed with VoiceClone.
 - GGUF models downloaded from [Serveurperso/Qwen3-TTS-GGUF](https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF) on Hugging Face (not included here; their licences apply).
 - Interface: [Tauri](https://tauri.app). MP3: LAME (through `mp3lame-encoder`, LGPL).
 - VoiceClone's own code has no licence file yet: until one is added, the default copyright applies.
@@ -205,7 +205,7 @@ Publier une version : `scripts\bump-version.ps1`, compléter `CHANGELOG.md`, com
 
 ### Composants tiers et licence
 
-- `vendor/qwentts` : copie du commit `de2ad83` de [ServeurpersoCom/qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) (MIT, voir `vendor/qwentts/LICENSE` et `vendor/qwentts/ggml/LICENSE`), portage C++ de Qwen3-TTS (Alibaba, Qwen team).
+- `vendor/qwentts` : copie du commit `de2ad83` de [ServeurpersoCom/qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) (MIT, voir `vendor/qwentts/LICENSE` et `vendor/qwentts/ggml/LICENSE`), portage C++ de Qwen3-TTS (Alibaba, Qwen team). La copie ne contient pas les échantillons de voix d'exemple du moteur (`examples/freeman.*`) ni les scripts qui les utilisent : aucune voix n'est distribuée avec VoiceClone.
 - Modèles GGUF téléchargés depuis [Serveurperso/Qwen3-TTS-GGUF](https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF) sur Hugging Face (non inclus ici ; leurs licences s'appliquent).
 - Interface : [Tauri](https://tauri.app). MP3 : LAME (via `mp3lame-encoder`, LGPL).
 - Le code propre de VoiceClone n'a pas encore de fichier de licence : tant qu'il n'y en a pas, le droit d'auteur par défaut s'applique.

@@ -5,6 +5,8 @@
 
 # Essais locaux : audios generes et echantillons de voix (donnees personnelles)
 /out/
+/release-assets/
+/Audios/
 
 # Modeles (plusieurs Go, telecharges depuis Paramètres) et bases de donnees
 *.gguf

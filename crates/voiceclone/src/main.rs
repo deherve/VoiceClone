@@ -12,11 +12,13 @@ fn usage() -> String {
 
   voiceclone-server                        lance le connecteur MCP (http://127.0.0.1:17494/mcp)
   voiceclone-server speak \"texte\" [...]    génère un audio depuis la ligne de commande (speak --help)
+  voiceclone-server export-voice <nom> <dossier>   exporte une voix (échantillons + transcriptions)
   voiceclone-server import-voicebox <dossier sh.voicebox.app> [nom]",
 "VoiceClone (server version)
 
   voiceclone-server                        starts the MCP connector (http://127.0.0.1:17494/mcp)
   voiceclone-server speak \"text\" [...]     generates audio from the command line (speak --help)
+  voiceclone-server export-voice <name> <folder>   exports a voice (samples + transcripts)
   voiceclone-server import-voicebox <sh.voicebox.app folder> [name]")
 }
 
@@ -53,9 +55,13 @@ fn speak(args: &[String], dir: &Path) -> R<()> {
         return Ok(());
     };
     let cwd = env::current_dir().map_err(|x| x.to_string())?;
-    let out = cli::output_path(sp.out.as_deref(), &cli::downloads_dir()?, &cwd, &sp.text, sp.enhanced)?;
+    // Sans --out, pas de output_path : l'audio est enregistre dans le dossier Audios du programme et son chemin est affiche.
+    let out = sp.out.as_deref().map(|o| cli::output_path(o, &cwd, &sp.text, sp.enhanced)).transpose()?;
 
-    let mut arguments = json!({"text": sp.text, "enhanced": sp.enhanced, "output_path": out});
+    let mut arguments = json!({"text": sp.text, "enhanced": sp.enhanced});
+    if let Some(o) = &out {
+        arguments["output_path"] = json!(o);
+    }
     for (key, value) in [("profile", &sp.voice), ("language", &sp.lang)] {
         if let Some(v) = value {
             arguments[key] = json!(v);
@@ -72,7 +78,7 @@ fn speak(args: &[String], dir: &Path) -> R<()> {
             // Pas de serveur : on charge le modele pour cette seule generation.
             eprintln!("{}", tr!("Serveur VoiceClone absent : chargement du modèle (une dizaine de secondes)…", "VoiceClone server not running: loading the model (about ten seconds)…"));
             voiceclone::engine::silence_logs();
-            App::open(dir.to_path_buf())?.speak(&sp.text, sp.voice.as_deref(), sp.lang.as_deref(), sp.seed, Some(&out), sp.enhanced)?
+            App::open(dir.to_path_buf())?.speak(&sp.text, sp.voice.as_deref(), sp.lang.as_deref(), sp.seed, out.as_deref(), sp.enhanced)?
         }
     };
     // Sortie standard : le chemin seul (facile a recuperer dans un script) ; le detail va sur la sortie d'erreur.
@@ -94,6 +100,15 @@ fn run() -> R<()> {
         Some("speak") => speak(&args[2..], &dir),
         Some("-h" | "--help" | "help") => {
             println!("{}", usage());
+            Ok(())
+        }
+        Some("export-voice") => {
+            let (name, folder) = (args.get(2), args.get(3));
+            let (Some(name), Some(folder)) = (name, folder) else {
+                return Err(tr!("usage : voiceclone-server export-voice <nom> <dossier>", "usage: voiceclone-server export-voice <name> <folder>"));
+            };
+            let n = App::open(dir)?.export_voice(name, Path::new(folder))?;
+            println!("{}", tr!("voix « {} » exportée : {} échantillon(s) dans {}", "voice \"{}\" exported: {} sample(s) to {}", name, n, folder));
             Ok(())
         }
         Some("import-voicebox") => {

@@ -13,7 +13,7 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["text"], "properties": {
             "text": {"type": "string", "description": "Texte à dire. Les textes longs sont découpés par phrases."},
             "profile": {"type": "string", "description": "Nom du profil de voix (voir list_profiles). Par défaut : le premier profil."},
-            "output_path": {"type": "string", "description": "Chemin absolu .wav où copier le résultat (ex. dossier public d'un projet Remotion)."},
+            "output_path": {"type": "string", "description": "Chemin absolu .wav où copier le résultat (ex. dossier public d'un projet Remotion). Sans lui, le fichier est dans le dossier Audios du programme (le chemin est renvoyé)."},
             "language": {"type": "string", "description": "Nom de langue Qwen3-TTS (french, english...). Par défaut : celle du profil."},
             "enhanced": {"type": "boolean", "description": "true : version améliorée (égaliseur de voix + volume normalisé à -18 dBFS). Le fichier écrit dans output_path est alors cette version ; l'original n'est pas conservé hors de l'application. Par défaut false."},
             "seed": {"type": "integer", "description": "Graine d'échantillonnage. Par défaut 7 (résultat reproductible)."}}}},

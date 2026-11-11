@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod models;
 mod store;
 pub mod update;
+pub mod voices;
 
 use engine::{Engine, Voice};
 use serde_json::{json, Value};
@@ -64,6 +65,8 @@ pub struct App {
     // Installation d'un composant (Vulkan, CUDA) : une seule a la fois, annulable.
     component_busy: AtomicBool,
     component_cancel: AtomicBool,
+    // Dossier des audios imposé (VOICECLONE_AUDIOS, ou essais) ; sinon `Audios\` a cote du programme.
+    audios_override: Option<PathBuf>,
 }
 
 fn busy() -> String {
@@ -72,7 +75,7 @@ fn busy() -> String {
 
 impl App {
     pub fn open(dir: PathBuf) -> R<Self> {
-        for d in ["profiles", "generations", "models"] {
+        for d in ["profiles", "models"] {
             fs::create_dir_all(dir.join(d)).map_err(e)?;
         }
         let store = Store::open(&dir.join("voiceclone.db"))?;
@@ -80,7 +83,7 @@ impl App {
         if let Some(l) = store.setting("lang") {
             i18n::set_lang(&l);
         }
-        Ok(App {
+        let app = App {
             dir,
             store: Mutex::new(store),
             rt: Mutex::new(Runtime { engine: None, voices: HashMap::new(), device: None, note: None }),
@@ -88,11 +91,35 @@ impl App {
             downloads: Mutex::new(HashMap::new()),
             component_busy: AtomicBool::new(false),
             component_cancel: AtomicBool::new(false),
-        })
+            audios_override: std::env::var_os("VOICECLONE_AUDIOS").map(PathBuf::from),
+        };
+        app.seed_bundled_voices(); // la voix de Zen livree avec l'archive, au premier lancement
+        Ok(app)
     }
 
     pub fn data_dir(&self) -> PathBuf {
         self.dir.clone()
+    }
+
+    /// Dossier ou sont enregistres tous les audios generes (application, MCP sans `output_path`, ligne de commande
+    /// sans `--out`) : `Audios\` a cote du programme, visible avec lui. Si ce dossier n'est pas modifiable (programme dans
+    /// Program Files...), repli sur `<donnees>\Audios`. Le dossier est cree s'il n'existe pas.
+    pub fn audios_dir(&self) -> PathBuf {
+        let writable = |d: &Path| {
+            let probe = d.join(".ecriture");
+            let ok = fs::create_dir_all(d).is_ok() && fs::write(&probe, b"").is_ok();
+            let _ = fs::remove_file(&probe);
+            ok
+        };
+        let preferred = self.audios_override.clone().or_else(|| std::env::current_exe().ok()?.parent().map(|p| p.join("Audios")));
+        match preferred {
+            Some(d) if writable(&d) => d,
+            _ => {
+                let d = self.dir.join("Audios");
+                let _ = fs::create_dir_all(&d);
+                d
+            }
+        }
     }
 
     /// Installe un composant manquant depuis sa source officielle (voir `components`). Une seule installation a la fois.
@@ -535,7 +562,8 @@ impl App {
         }
         audio::clean(&mut pcm);
 
-        let stored = self.dir.join("generations").join(format!("{}.wav", now_ms()?));
+        // Nom lisible tire du texte (« Bonjour-je-suis-Zen.wav », puis -2, -3...) dans le dossier Audios du programme.
+        let stored = cli::free_path(&self.audios_dir(), &cli::file_stem(text, false));
         audio::write_wav(&stored, &pcm)?;
         let duration = pcm.len() as f64 / audio::SR as f64;
         let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed)?;
@@ -648,13 +676,35 @@ mod tests {
     }
 
     #[test]
+    fn audios_folder_is_created_and_falls_back_when_not_writable() {
+        let dir = std::env::temp_dir().join(format!("voiceclone-aud-{}", std::process::id()));
+        let mut app = App::open(dir.clone()).unwrap();
+        // Dossier impose : cree s'il manque, rien n'est ecrit dans le dossier de donnees.
+        app.audios_override = Some(dir.join("mes audios").join("Audios"));
+        let d = app.audios_dir();
+        assert!(d.is_dir() && d.ends_with("Audios") && !dir.join("Audios").exists());
+        assert_eq!(fs::read_dir(&d).unwrap().count(), 0, "le test d'ecriture ne laisse rien derriere lui");
+        // Dossier impossible a creer (un fichier porte deja ce nom) : repli sur <donnees>\Audios.
+        let blocker = dir.join("bloque");
+        fs::write(&blocker, b"x").unwrap();
+        app.audios_override = Some(blocker.join("Audios"));
+        assert_eq!(app.audios_dir(), dir.join("Audios"));
+        assert!(dir.join("Audios").is_dir());
+        drop(app);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn enhance_and_export_keep_original() {
         let dir = std::env::temp_dir().join(format!("voiceclone-enh-{}", std::process::id()));
-        let app = App::open(dir.clone()).unwrap();
+        let mut app = App::open(dir.clone()).unwrap();
+        app.audios_override = Some(dir.join("Audios"));
+        let audios = app.audios_dir();
+        assert_eq!(audios, dir.join("Audios"));
         let pid = app.create_profile("Test", "french").unwrap();
         // Une « generation » faible (-34 dBFS) : sinus 500 Hz, 2 s.
         let pcm: Vec<f32> = (0..48000).map(|i| 0.02 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / 24000.0).sin()).collect();
-        let original = dir.join("generations").join("1.wav");
+        let original = audios.join("1.wav");
         audio::write_wav(&original, &pcm).unwrap();
         let id = app.store.lock().unwrap().add_generation(pid, "Bonjour, ça va ? Très bien !", &original.to_string_lossy(), 2.0, 7).unwrap();
         let out = dir.join("export");
@@ -704,11 +754,11 @@ mod tests {
         let w = app.waveform("generation", id, 40).unwrap();
         assert_eq!(w.len(), 40);
         assert_eq!(w.iter().max(), Some(&100));
-        let quiet = dir.join("generations").join("quiet.wav");
+        let quiet = audios.join("quiet.wav");
         audio::write_wav(&quiet, &vec![0.0; 24000]).unwrap();
         let qid = app.store.lock().unwrap().add_generation(pid, "silence", &quiet.to_string_lossy(), 1.0, 7).unwrap();
         assert!(app.waveform("generation", qid, 40).unwrap().iter().all(|&v| v == 0));
-        let short = dir.join("generations").join("short.wav");
+        let short = audios.join("short.wav");
         audio::write_wav(&short, &[0.5; 10]).unwrap();
         let sid = app.store.lock().unwrap().add_generation(pid, "court", &short.to_string_lossy(), 0.0, 7).unwrap();
         assert_eq!(app.waveform("generation", sid, 40).unwrap().len(), 10);

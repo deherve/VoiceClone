@@ -469,8 +469,10 @@ function renderConnection() {
     el('details', {}, el('summary', { textContent: t('conn.ai_preview') }), el('pre', { textContent: doc }))));
   $('conn-blocks').replaceChildren(...blocks);
 }
+$('aud-open').onclick = () => invoke('open_audios_dir').catch(e => alert(e));
 async function loadConnection() {
   connInfo = await invoke('connection_info');
+  $('aud-path').textContent = connInfo.audios;
   renderConnection();
 }
 

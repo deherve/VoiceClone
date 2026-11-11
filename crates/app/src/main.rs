@@ -97,7 +97,7 @@ fn connection_info(app: Core<'_>) -> Value {
     let text = |p: Option<std::path::PathBuf>| p.map(|p| p.display().to_string());
     json!({
         "app": text(exe), "server": text(server), "port": mcp::port(), "url": format!("http://127.0.0.1:{}/mcp", mcp::port()),
-        "downloads": text(voiceclone::cli::downloads_dir().ok()), "data": app.data_dir().display().to_string(),
+        "audios": app.audios_dir().display().to_string(), "data": app.data_dir().display().to_string(),
     })
 }
 
@@ -216,6 +216,12 @@ fn reveal(app: Core<'_>, id: i64) -> R<()> {
     std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn().map(|_| ()).map_err(|x| x.to_string())
 }
 
+/// Ouvre le dossier Audios du programme dans l'Explorateur.
+#[tauri::command]
+fn open_audios_dir(app: Core<'_>) -> R<()> {
+    std::process::Command::new("explorer").arg(app.audios_dir()).spawn().map(|_| ()).map_err(|x| x.to_string())
+}
+
 // ---------------------------------------------------------------- modeles (page Parametres)
 #[tauri::command]
 fn models(app: Core<'_>) -> Value {
@@ -300,7 +306,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
-            connection_info, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
+            connection_info, open_audios_dir, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

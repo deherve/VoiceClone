@@ -25,7 +25,7 @@ Usage : voiceclone-server speak \"texte\" [options]
   -l, --lang <langue>     fr, en, de, es, it, pt, ja, ko, zh, ru (ou french, english...) ; défaut : langue de la voix
   -q, --quality <niveau>  standard (défaut) ou ameliore / enhanced : égaliseur de voix + volume normalisé
   -v, --voice <nom>       voix à utiliser (voir list_profiles) ; défaut : la première voix
-  -o, --out <chemin>      fichier .wav, ou dossier (sans \\ final) ; défaut : le dossier Téléchargements
+  -o, --out <chemin>      fichier .wav, ou dossier (sans \\ final) ; défaut : le dossier Audios du programme
       --seed <n>          graine d'échantillonnage (défaut 7 : résultat reproductible)
   -h, --help              cette aide
 
@@ -43,7 +43,7 @@ Usage: voiceclone-server speak \"text\" [options]
   -l, --lang <language>   fr, en, de, es, it, pt, ja, ko, zh, ru (or french, english...); default: the voice's language
   -q, --quality <level>   standard (default) or enhanced: voice equalizer + normalized volume
   -v, --voice <name>      voice to use (see list_profiles); default: the first voice
-  -o, --out <path>        .wav file, or folder (without a final \\); default: the Downloads folder
+  -o, --out <path>        .wav file, or folder (without a final \\); default: the program's Audios folder
       --seed <n>          sampling seed (default 7: reproducible result)
   -h, --help              this help
 
@@ -128,7 +128,7 @@ pub fn parse(args: &[String], read_stdin: &dyn Fn() -> R<String>) -> R<Option<Sp
 }
 
 /// Nom de fichier tire du debut du texte : « Bonjour-je-suis-Zen.wav ».
-fn file_stem(text: &str, enhanced: bool) -> String {
+pub fn file_stem(text: &str, enhanced: bool) -> String {
     let slug: String = text.chars().take(40).map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
     let slug = slug.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
     let base = if slug.is_empty() { if crate::i18n::is_en() { "voice".to_string() } else { "voix".to_string() } } else { slug };
@@ -136,7 +136,7 @@ fn file_stem(text: &str, enhanced: bool) -> String {
 }
 
 /// Premier nom libre dans `dir` : `nom.wav`, puis `nom-2.wav`, `nom-3.wav`... (jamais d'ecrasement silencieux).
-fn free_path(dir: &Path, stem: &str) -> PathBuf {
+pub fn free_path(dir: &Path, stem: &str) -> PathBuf {
     let first = dir.join(format!("{stem}.wav"));
     if !first.exists() {
         return first;
@@ -144,11 +144,11 @@ fn free_path(dir: &Path, stem: &str) -> PathBuf {
     (2u32..).map(|n| dir.join(format!("{stem}-{n}.wav"))).find(|p| !p.exists()).expect("une infinite de noms")
 }
 
-/// Fichier de sortie : `out` = fichier .wav (ecrase s'il existe : c'est le choix explicite de l'utilisateur) ou dossier ;
-/// sans `out`, le dossier Telechargements. Retourne toujours un chemin absolu.
-pub fn output_path(out: Option<&str>, downloads: &Path, cwd: &Path, text: &str, enhanced: bool) -> R<PathBuf> {
+/// Fichier de sortie choisi avec `--out` : un fichier .wav (ecrase s'il existe : c'est le choix explicite de l'utilisateur)
+/// ou un dossier. Retourne toujours un chemin absolu. Sans `--out`, aucun chemin n'est demande : l'audio est enregistre
+/// dans le dossier Audios du programme (voir `App::audios_dir`).
+pub fn output_path(out: &str, cwd: &Path, text: &str, enhanced: bool) -> R<PathBuf> {
     let stem = file_stem(text, enhanced);
-    let Some(out) = out else { return Ok(free_path(downloads, &stem)) };
     // Piege de Windows : "C:\mon dossier\" est lu comme un guillemet echappe, l'argument arrive avec un « " » en fin.
     // Ce guillemet ne peut venir que de la, et l'antislash final disait qu'il s'agissait d'un dossier.
     let (out, quoted_dir) = (out.trim_end_matches('"'), out.ends_with('"'));
@@ -162,13 +162,6 @@ pub fn output_path(out: Option<&str>, downloads: &Path, cwd: &Path, text: &str, 
         return Err(tr!("--out doit être un fichier .wav ou un dossier (reçu : {})", "--out must be a .wav file or a folder (got: {})", out));
     }
     Ok(p)
-}
-
-/// Dossier Telechargements de l'utilisateur.
-// shortcut: %USERPROFILE%\Downloads (faux si le dossier a ete deplace dans Windows) ; passer par SHGetKnownFolderPath si besoin.
-pub fn downloads_dir() -> R<PathBuf> {
-    let home = std::env::var_os("USERPROFILE").ok_or_else(|| tr!("USERPROFILE non défini", "USERPROFILE is not set"))?;
-    Ok(PathBuf::from(home).join("Downloads"))
 }
 
 #[cfg(test)]
@@ -208,28 +201,29 @@ mod tests {
     }
 
     #[test]
-    fn output_goes_to_downloads_by_default_and_never_overwrites_silently() {
+    fn output_names_never_overwrite_silently() {
         let dir = std::env::temp_dir().join(format!("voiceclone-cli-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cwd = Path::new("C:\\travail");
-        let first = output_path(None, &dir, cwd, "Bonjour, je suis Zen !", false).unwrap();
-        assert_eq!(first, dir.join("Bonjour-je-suis-Zen.wav"));
-        std::fs::write(&first, b"x").unwrap();
-        assert_eq!(output_path(None, &dir, cwd, "Bonjour, je suis Zen !", false).unwrap(), dir.join("Bonjour-je-suis-Zen-2.wav"));
-        assert_eq!(output_path(None, &dir, cwd, "Bonjour, je suis Zen !", true).unwrap(), dir.join("Bonjour-je-suis-Zen-ameliore.wav"));
-        assert_eq!(output_path(None, &dir, cwd, "???", false).unwrap(), dir.join("voix.wav"));
+        // Nom automatique tire du texte (utilise aussi pour le dossier Audios) ; jamais d'ecrasement silencieux.
+        assert_eq!(free_path(&dir, &file_stem("Bonjour, je suis Zen !", false)), dir.join("Bonjour-je-suis-Zen.wav"));
+        std::fs::write(dir.join("Bonjour-je-suis-Zen.wav"), b"x").unwrap();
+        assert_eq!(free_path(&dir, &file_stem("Bonjour, je suis Zen !", false)), dir.join("Bonjour-je-suis-Zen-2.wav"));
+        assert_eq!(file_stem("Bonjour, je suis Zen !", true), "Bonjour-je-suis-Zen-ameliore");
+        assert_eq!(file_stem("???", false), "voix");
         // Dossier existant ou termine par un separateur : nom automatique dedans (cree si besoin).
         let sub = dir.join("sortie");
-        let made = output_path(Some(&format!("{}\\", sub.display())), &dir, cwd, "Salut", false).unwrap();
+        let made = output_path(&format!("{}\\", sub.display()), cwd, "Salut", false).unwrap();
         assert_eq!(made, sub.join("Salut.wav"));
         assert!(sub.is_dir());
         // « "dossier\" » : l'antislash final echappe le guillemet de fermeture, l'argument se termine par un « " ».
         let trap = format!("{}\"", sub.join("avec espace").display());
-        assert_eq!(output_path(Some(&trap), &dir, cwd, "Salut", false).unwrap(), sub.join("avec espace").join("Salut.wav"));
+        assert_eq!(output_path(&trap, cwd, "Salut", false).unwrap(), sub.join("avec espace").join("Salut.wav"));
         // Fichier explicite : tel quel, relatif resolu depuis le dossier courant ; autre extension refusee.
-        assert_eq!(output_path(Some("voix\\01.wav"), &dir, cwd, "x", false).unwrap(), cwd.join("voix\\01.wav"));
-        assert_eq!(output_path(Some(first.to_str().unwrap()), &dir, cwd, "x", false).unwrap(), first, "fichier explicite : ecrase, c'est voulu");
-        assert!(output_path(Some("a.mp3"), &dir, cwd, "x", false).is_err() && output_path(Some("a"), &dir, cwd, "x", false).is_err());
+        assert_eq!(output_path("voix\\01.wav", cwd, "x", false).unwrap(), cwd.join("voix\\01.wav"));
+        let existing = dir.join("Bonjour-je-suis-Zen.wav");
+        assert_eq!(output_path(existing.to_str().unwrap(), cwd, "x", false).unwrap(), existing, "fichier explicite : ecrase, c'est voulu");
+        assert!(output_path("a.mp3", cwd, "x", false).is_err() && output_path("a", cwd, "x", false).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

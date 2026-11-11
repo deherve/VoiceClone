@@ -54,8 +54,9 @@ Local voice cloning and audio generation, driven from a window or from Claude Co
 - Portable mode: create an empty file named "portable" next to the program; your data then stay in the "data" folder instead of %APPDATA%\VoiceClone.
 - MCP connector: http://127.0.0.1:17494/mcp  (tools: speak, list_profiles, list_generations)
 - Connect an AI or a script: Settings > "Connect an AI or a script" gives the MCP declaration, the command line and complete instructions to copy, with the real paths of this installation. voiceclone-server.exe (same folder) is the version without a window.
-- Quick command line: voiceclone-server.exe speak "text" --lang en --quality enhanced --voice Name   (default destination: Downloads)
+- Quick command line: voiceclone-server.exe speak "text" --lang en --quality enhanced --voice Name   (default destination: the Audios folder next to the program)
 - Windows may warn about an unsigned program (SmartScreen): choose "More info" then "Run anyway".
+- Generated audios are saved in the "Audios" folder next to the program. The archive includes one ready-made voice, "Zen" (folder "Voix", imported at first launch).
 - Source code and updates: https://github.com/deherve/VoiceClone  -  Support: https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 
 FRANCAIS
@@ -66,8 +67,9 @@ Clonage de voix et generation d'audio en local, depuis une fenetre ou depuis Cla
 - Mode portable : creez un fichier vide nomme "portable" a cote du programme ; vos donnees restent alors dans le dossier "data" au lieu de %APPDATA%\VoiceClone.
 - Connecteur MCP : http://127.0.0.1:17494/mcp  (outils : speak, list_profiles, list_generations)
 - Connecter une IA ou un script : Parametres > « Connecter une IA ou un script » donne la declaration MCP, la ligne de commande et des instructions completes a copier, avec les chemins reels de cette installation. voiceclone-server.exe (meme dossier) est la version sans fenetre.
-- Ligne de commande rapide : voiceclone-server.exe speak "texte" --lang fr --quality ameliore --voice Nom   (destination par defaut : Telechargements)
+- Ligne de commande rapide : voiceclone-server.exe speak "texte" --lang fr --quality ameliore --voice Nom   (destination par defaut : le dossier Audios a cote du programme)
 - Windows peut avertir qu'un programme n'est pas signe (SmartScreen) : « Informations complementaires » puis « Executer quand meme ».
+- Les audios generes sont enregistres dans le dossier "Audios" a cote du programme. L'archive contient une voix prete a l'emploi, « Zen » (dossier "Voix", importee au premier lancement).
 - Code source et mises a jour : https://github.com/deherve/VoiceClone  -  Soutenir : https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 "@
 
@@ -81,6 +83,7 @@ function Assemble([string]$name, [string[]]$exes) {
     Copy-Item $runtimes $dir
     Copy-Item "$root\vendor\qwentts\LICENSE" "$dir\licences\qwentts.cpp-LICENSE.txt"
     Copy-Item "$root\vendor\qwentts\ggml\LICENSE" "$dir\licences\ggml-LICENSE.txt"
+    Copy-Item $voices "$dir\Voix" -Recurse
     Set-Content "$dir\README.txt" $readme -Encoding UTF8
     & "$root\scripts\check-deps.ps1" -Dir $dir | Out-Host
     if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }

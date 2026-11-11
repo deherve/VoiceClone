@@ -76,8 +76,8 @@ const I18N = {
     'conn.start': 'Lancer la version serveur, sans fenêtre (PowerShell)',
     'conn.start_note': "Inutile si VoiceClone est déjà ouvert : sa fenêtre expose le même connecteur. Ne lancez pas les deux en même temps (même port).",
     'conn.cli_ps': 'Génération rapide en ligne de commande (PowerShell)', 'conn.cli_cmd': 'Génération rapide en ligne de commande (Invite de commandes)',
-    'conn.cmt_std': 'qualité standard', 'conn.cmt_enh': 'qualité améliorée (égaliseur + volume normalisé)', 'conn.cmt_out': 'destination personnalisée (sans --out : dossier Téléchargements)',
-    'conn.cli_note': "Langue : fr, en, de, es, it, pt, ja, ko, zh, ru. Qualité : standard ou enhanced (ameliore). Voix : le nom d'une voix. Sans --out, le fichier est créé dans {downloads}. La commande affiche le chemin du fichier. Elle utilise le serveur s'il tourne déjà, sinon elle charge le modèle pour cette seule génération.",
+    'conn.cmt_std': 'qualité standard', 'conn.cmt_enh': 'qualité améliorée (égaliseur + volume normalisé)', 'conn.cmt_out': 'destination personnalisée (sans --out : dossier Audios)',
+    'conn.cli_note': "Langue : fr, en, de, es, it, pt, ja, ko, zh, ru. Qualité : standard ou enhanced (ameliore). Voix : le nom d'une voix. Sans --out, le fichier est créé dans {audios}. La commande affiche le chemin du fichier. Elle utilise le serveur s'il tourne déjà, sinon elle charge le modèle pour cette seule génération.",
     'conn.ai': 'Instructions complètes pour une IA ou un skill', 'conn.ai_copy': 'Copier les instructions pour une IA', 'conn.ai_preview': 'Aperçu des instructions',
     'conn.sample': 'Bonjour à tous', 'conn.sample_lang': 'fr',
     'conn.doc': `## Voix de synthèse : VoiceClone (connecteur MCP)
@@ -100,7 +100,7 @@ Outils : \`mcp__voiceclone__speak\`, \`mcp__voiceclone__list_profiles\`, \`mcp__
 
 ### Outil \`speak\` (bloquant)
 - \`text\` (obligatoire) : texte à dire, nombres en toutes lettres, une phrase par appel (80 à 130 caractères).
-- \`output_path\` : chemin ABSOLU en .wav (dossiers créés). Sans lui, le fichier reste dans le dossier de données de VoiceClone.
+- \`output_path\` : chemin ABSOLU en .wav (dossiers créés). Sans lui, le fichier est dans le dossier Audios du programme (le chemin est renvoyé).
 - \`profile\` : nom de la voix (\`list_profiles\`), par exemple "{voice}". Défaut : la première voix.
 - \`language\` : french, english, german, spanish, italian, portuguese, japanese, korean, chinese, russian. Défaut : langue de la voix.
 - \`enhanced\` : true = version améliorée (égaliseur de voix + volume normalisé à -18 dBFS, crêtes sous -1 dBFS) ; false (défaut) = brute (filtre anti-souffle seulement).
@@ -113,7 +113,7 @@ Résultat : JSON \`{"id":…,"path":"…","duration_sec":…,"profile":"…","se
 ### Ligne de commande (sans MCP)
 PowerShell : \`& "{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
 Invite de commandes : \`"{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
-Options : --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (fichier .wav ou dossier ; défaut : {downloads}), --seed.
+Options : --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (fichier .wav ou dossier ; défaut : le dossier Audios du programme), --seed.
 Affiche le chemin du fichier créé. Utilise le serveur s'il tourne déjà, sinon charge le modèle pour cette génération.
 
 ### Autres outils
@@ -131,6 +131,7 @@ Modèle et codec téléchargés (VoiceClone, Paramètres, Modèles) ; la voix do
     'upd.size': 'Archive : {name} · {size}',
 
     // Carte graphique
+    'aud.title': 'Dossier des audios', 'aud.hint': "Tous les audios générés (application, MCP, ligne de commande) sont enregistrés dans le sous-dossier Audios du programme.", 'aud.open': 'Ouvrir le dossier',
     'gpu.title': 'Carte graphique', 'gpu.none': 'Aucun périphérique de calcul détecté.',
     'gpu.summary': 'Meilleur choix détecté : {best}. {state}', 'gpu.loaded': 'Calcul en cours sur {name}.', 'gpu.not_loaded': 'Le modèle est chargé à la prochaine génération.',
     'gpu.device': 'Périphérique de calcul', 'gpu.auto': 'Automatique : {name} (recommandé)', 'gpu.cpu_name': 'processeur', 'gpu.recommended': 'recommandé',
@@ -244,8 +245,8 @@ Modèle et codec téléchargés (VoiceClone, Paramètres, Modèles) ; la voix do
     'conn.start': 'Start the server version, without a window (PowerShell)',
     'conn.start_note': 'Not needed if VoiceClone is already open: its window exposes the same connector. Do not start both at the same time (same port).',
     'conn.cli_ps': 'Quick generation from the command line (PowerShell)', 'conn.cli_cmd': 'Quick generation from the command line (Command Prompt)',
-    'conn.cmt_std': 'standard quality', 'conn.cmt_enh': 'enhanced quality (equalizer + normalized volume)', 'conn.cmt_out': 'custom destination (without --out: the Downloads folder)',
-    'conn.cli_note': 'Language: fr, en, de, es, it, pt, ja, ko, zh, ru. Quality: standard or enhanced. Voice: the name of a voice. Without --out, the file is created in {downloads}. The command prints the path of the file. It uses the server if it is already running, otherwise it loads the model for this single generation.',
+    'conn.cmt_std': 'standard quality', 'conn.cmt_enh': 'enhanced quality (equalizer + normalized volume)', 'conn.cmt_out': 'custom destination (without --out: the Audios folder)',
+    'conn.cli_note': 'Language: fr, en, de, es, it, pt, ja, ko, zh, ru. Quality: standard or enhanced. Voice: the name of a voice. Without --out, the file is created in {audios}. The command prints the path of the file. It uses the server if it is already running, otherwise it loads the model for this single generation.',
     'conn.ai': 'Complete instructions for an AI or a skill', 'conn.ai_copy': 'Copy the instructions for an AI', 'conn.ai_preview': 'Instructions preview',
     'conn.sample': 'Hello everyone', 'conn.sample_lang': 'en',
     'conn.doc': `## Speech synthesis: VoiceClone (MCP connector)
@@ -281,7 +282,7 @@ Result: JSON \`{"id":…,"path":"…","duration_sec":…,"profile":"…","seed":
 ### Command line (no MCP)
 PowerShell: \`& "{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
 Command Prompt: \`"{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
-Options: --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (.wav file or folder; default: {downloads}), --seed.
+Options: --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (.wav file or folder; default: the program's Audios folder), --seed.
 Prints the path of the file created. Uses the server if it is already running, otherwise loads the model for this generation.
 
 ### Other tools
@@ -297,6 +298,7 @@ Model and codec downloaded (VoiceClone, Settings, Models); the voice needs at le
     'upd.how': 'Download the archive from the release page, close VoiceClone, then replace its files: your voices and generations (in %APPDATA%\\VoiceClone) are kept.',
     'upd.size': 'Archive: {name} · {size}',
 
+    'aud.title': 'Audios folder', 'aud.hint': "Every generated audio (app, MCP, command line) is saved in the Audios subfolder of the program.", 'aud.open': 'Open folder',
     'gpu.title': 'Graphics card', 'gpu.none': 'No compute device detected.',
     'gpu.summary': 'Best choice detected: {best}. {state}', 'gpu.loaded': 'Computing on {name}.', 'gpu.not_loaded': 'The model is loaded at the next generation.',
     'gpu.device': 'Compute device', 'gpu.auto': 'Automatic: {name} (recommended)', 'gpu.cpu_name': 'processor', 'gpu.recommended': 'recommended',

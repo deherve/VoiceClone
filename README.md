@@ -62,7 +62,7 @@ Then ask for example: *"say this sentence with the voice Zen and write it to `pu
 | `-l`, `--lang` | `fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru` (default: the voice's language) |
 | `-q`, `--quality` | `standard` (default) or `enhanced` (voice equalizer + normalized volume) |
 | `-v`, `--voice` | voice name (default: the first voice) |
-| `-o`, `--out` | `.wav` file or folder (default: your **Downloads** folder; an existing file is never replaced unless you name it) |
+| `-o`, `--out` | `.wav` file or folder (default: the **Audios** folder next to the program, where every generated audio is saved; an existing file is never replaced unless you name it) |
 
 It prints the path of the file created. It uses the running server when there is one (fast), otherwise it loads the model for that single generation (about ten seconds more).
 
@@ -161,7 +161,7 @@ Demandez ensuite par exemple : *« dis cette phrase avec la voix Zen et écris-l
 | `-l`, `--lang` | `fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru` (défaut : langue de la voix) |
 | `-q`, `--quality` | `standard` (défaut) ou `ameliore` / `enhanced` (égaliseur de voix + volume normalisé) |
 | `-v`, `--voice` | nom de la voix (défaut : la première voix) |
-| `-o`, `--out` | fichier `.wav` ou dossier (défaut : le dossier **Téléchargements** ; un fichier existant n'est jamais remplacé sauf si vous le nommez) |
+| `-o`, `--out` | fichier `.wav` ou dossier (défaut : le dossier **Audios** à côté du programme, où tous les audios générés sont enregistrés ; un fichier existant n'est jamais remplacé sauf si vous le nommez) |
 
 Affiche le chemin du fichier créé. Utilise le serveur s'il tourne déjà (rapide), sinon charge le modèle pour cette seule génération (une dizaine de secondes de plus).
 

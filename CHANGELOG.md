@@ -6,6 +6,16 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.3 - 2026-11-11
+
+**English**
+- **Audios folder**: every generated audio (window, MCP, command line) is now saved in the `Audios` subfolder next to the program, with a readable name taken from the text (never replacing an existing file). Settings shows the path and a button to open it. The command line no longer writes to Downloads by default.
+- **Zen voice included in the compiled archives**: `Voix\Zen` is imported at first launch (once). The source repository and its source archives contain no voice. New command `voiceclone-server.exe export-voice <name> <folder>`.
+
+**Français**
+- **Dossier Audios** : tous les audios générés (fenêtre, MCP, ligne de commande) sont enregistrés dans le sous-dossier `Audios` à côté du programme, avec un nom lisible tiré du texte (sans jamais remplacer un fichier existant). Les Paramètres montrent le chemin et un bouton pour l'ouvrir. La ligne de commande n'écrit plus dans Téléchargements par défaut.
+- **Voix de Zen dans les archives compilées** : `Voix\Zen` est importée au premier lancement (une seule fois). Le dépôt source et ses archives ne contiennent aucune voix. Nouvelle commande `voiceclone-server.exe export-voice <nom> <dossier>`.
+
 ## 0.1.2 - 2026-11-11
 
 **English**

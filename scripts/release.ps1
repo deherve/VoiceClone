@@ -97,7 +97,7 @@ function Assemble([string]$name, [string[]]$exes) {
     & "$root\scripts\check-deps.ps1" -Dir $dir | Out-Host
     if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }
     # Garde-fou : les seuls fichiers audio de l'archive sont les echantillons de Zen.
-    $audio = Get-ChildItem $dir -Recurse -File | Where-Object { $_.Extension -match '^\.(wav|mp3|flac|ogg|m4a)$' -and $_.FullName -notmatch '\Voix\Zen\sample-\d+\.wav$' }
+    $audio = Get-ChildItem $dir -Recurse -File | Where-Object { $_.Extension -match '^\.(wav|mp3|flac|ogg|m4a)$' -and $_.FullName -notmatch '\\Voix\\Zen\\sample-\d+\.wav$' }
     if ($audio) { throw "Fichiers audio inattendus dans l'archive : $($audio.Name -join ', ')" }
     $zip = "$root\target\dist\$name.zip"
     Compress-Archive -Path "$dir\*" -DestinationPath $zip

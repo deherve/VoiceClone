@@ -231,11 +231,11 @@ $('file').onchange = async (ev) => {
 // ---------------------------------------------------------------- balises : insertion au curseur
 // Chaque voix a sa couleur (teinte fixe selon son numero ; clarte et saturation viennent du theme : --vs, --vl).
 const VOICE_HUES = [205, 335, 140, 275, 28, 172, 52, 95];
-const voiceVar = (p) => (p ? `--h:${VOICE_HUES[(p.id - 1) % VOICE_HUES.length]}` : '');
+// Teinte posee par l'API CSSOM : la CSP de l'application interdit l'attribut HTML style (donc pas de setAttribute).
+const paint = (node, p) => { if (p) node.style.setProperty('--h', VOICE_HUES[(p.id - 1) % VOICE_HUES.length]); return node; };
 function voiceAvatar(p) {
   const a = el('span', { className: 'avatar vc-bg', textContent: initials(p.name) });
-  a.setAttribute('style', voiceVar(p));
-  return a;
+  return paint(a, p);
 }
 // Decoupe le texte comme le programme : [pause], [NomDeVoix] (change de voix), reste = texte dit par la voix courante.
 function voiceSpans(text) {
@@ -265,8 +265,7 @@ function renderHighlight() {
   hl.style.width = `${tx.clientWidth + parseFloat(cs.borderLeftWidth) * 2}px`;
   const spans = voiceSpans(tx.value).map((x) => {
     const e = el('span', { className: x.cls, textContent: x.s });
-    if (x.p) e.setAttribute('style', voiceVar(x.p));
-    return e;
+    return paint(e, x.p);
   });
   $('hl-in').replaceChildren(...spans, document.createTextNode(tx.value.endsWith('\n') ? ' ' : ''));
   $('hl-in').style.transform = `translateY(${-tx.scrollTop}px)`;
@@ -285,7 +284,7 @@ function insertTag(tag) {
 function renderTags() {
   $('tags').replaceChildren(
     el('button', { type: 'button', className: 'tag pause', textContent: t('tags.pause'), title: t('tags.pause_tip'), onclick: () => insertTag('[pause]') }),
-    ...profiles.map((p) => el('button', { type: 'button', className: 'tag voice vc', style: voiceVar(p), textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) })));
+    ...profiles.map((p) => paint(el('button', { type: 'button', className: 'tag voice vc', textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) }), p)));
   renderHighlight();
 }
 
@@ -436,7 +435,7 @@ async function loadGenerations() {
         el('div', { className: 'player' }, playButton('generation', g.id, st), bars, el('span', { className: 'dur', textContent: fmt(g.duration_sec) })),
         el('div', { className: 'meta' },
           el('span', { className: 'new-badge', textContent: t('gen.new') }),
-          el('span', { className: 'voice vc', style: voiceVar(profiles.find((p) => p.name === g.profile)), textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }),
+          paint(el('span', { className: 'voice vc', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }), profiles.find((p) => p.name === g.profile)),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));
   }));

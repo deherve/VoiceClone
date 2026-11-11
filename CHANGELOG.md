@@ -6,6 +6,14 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.2.1 - 2026-11-12
+
+**English**
+- The browser's right-click menu (Print, Save as, More tools...) no longer appears in the app. It stays in text fields (cut and paste) and on selected text (copy).
+
+**Français**
+- Le menu clic droit du navigateur (Imprimer, Enregistrer sous, Outils supplémentaires...) ne s'affiche plus dans l'application. Il reste dans les champs de saisie (couper, coller) et sur du texte sélectionné (copier).
+
 ## 0.2.0 - 2026-11-12
 
 **English**

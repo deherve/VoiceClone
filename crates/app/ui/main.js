@@ -10,6 +10,11 @@ const WARN_AFTER_SEC = 90; // mesure : a 3 min de reference la generation derail
 let profiles = [], current = null, samples = [], busy = false, recorder = null, playingKey = null, page = 'studio';
 let appVersion = '', updateInfo = null;
 
+// Menu clic droit du navigateur (Imprimer, Enregistrer sous...) : inutile ici. On le garde seulement dans les champs de
+// saisie (couper/coller) et quand du texte est selectionne (copier, par exemple un bloc de commande des Parametres).
+document.addEventListener('contextmenu', (ev) => {
+  if (!ev.target.closest?.('input, textarea, [contenteditable]') && !String(getSelection()).length) ev.preventDefault();
+});
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* preference valable pour cette session seulement */ } };
 

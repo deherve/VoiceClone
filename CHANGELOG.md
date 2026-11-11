@@ -6,6 +6,14 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.6 - 2026-11-11
+
+**English**
+- The version number is shown in the title bar, next to the program name ("VoiceClone 0.1.6").
+
+**Français**
+- Le numéro de version s'affiche dans la barre de titre, à côté du nom du programme (« VoiceClone 0.1.6 »).
+
 ## 0.1.5 - 2026-11-11
 
 **English**

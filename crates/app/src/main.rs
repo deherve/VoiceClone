@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{ipc::{InvokeBody, Request, Response}, Emitter, State};
+use tauri::{ipc::{InvokeBody, Request, Response}, Emitter, Manager, State};
 use voiceclone::{components, data_dir, mcp, tr, update, App, R};
 
 type Core<'a> = State<'a, Arc<App>>;
@@ -302,6 +302,10 @@ fn main() {
         .manage(core)
         .manage(McpInfo(info))
         .setup(move |t| {
+            // Titre de la fenetre : « VoiceClone 0.1.5 » (version du programme en cours).
+            if let Some(w) = t.get_webview_window("main") {
+                let _ = w.set_title(&format!("VoiceClone {}", update::current_version()));
+            }
             let handle = t.handle().clone();
             hook_core.set_on_change(Box::new(move || {
                 let _ = handle.emit("changed", ());

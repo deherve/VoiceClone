@@ -22,7 +22,7 @@ const vars = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join('
 for (const k of frKeys) if (enKeys.has(k) && vars(fr[k]) !== vars(en[k])) problems.push(`variables différentes pour ${k} : {${vars(fr[k])}} / {${vars(en[k])}}`);
 // Mots identiques dans les deux langues par nature (noms propres, « audio », « Original »...) : pas des oublis.
 const SAME = new Set(['nav.pages', 'nav.studio', 'lang.ui.fr', 'lang.ui.en', 'theme.nocturne', 'theme.atelier', 'theme.console', 'theme.conversation',
-  'gen.original', 'gen.count_one', 'gen.count_other', 'comp.mp3', 'readme.french', 'readme.english']);
+  'gen.original', 'gen.multiple', 'gen.count_one', 'gen.count_other', 'comp.mp3', 'readme.french', 'readme.english']);
 for (const [k, v] of Object.entries(en)) {
   if (v.trim() === '') problems.push(`texte anglais vide : ${k}`);
   else if (fr[k] === en[k] && !SAME.has(k)) problems.push(`anglais identique au français (non traduit ?) : ${k}`);

@@ -6,6 +6,20 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.9 - 2026-11-11
+
+**English**
+- **Delete all generated audios**: a trash icon in the Generations header, with a confirmation that shows the number of audios (history and files, enhanced versions included).
+- **"multiple" label**: a generation spoken by several voices is labelled "Voice: multiple" instead of the name of one voice.
+- **Transcript check**: a sample whose transcript does not fit the length of its audio (about 7 to 30 characters per second is expected) is flagged in the samples panel and ignored for cloning (timbre only), with a warning after the generation. Such a transcript made voices drift and read the wrong text. Chinese, Japanese and Korean are not checked.
+- New banner image in the README.
+
+**Français**
+- **Vider tous les audios générés** : une icône corbeille dans l'en-tête des Générations, avec une confirmation qui indique le nombre d'audios (historique et fichiers, versions améliorées comprises).
+- **Étiquette « multiple »** : une génération dite par plusieurs voix est étiquetée « Voix : multiple » au lieu du nom d'une seule voix.
+- **Contrôle des transcriptions** : un échantillon dont la transcription ne correspond pas à la durée de son audio (environ 7 à 30 caractères par seconde attendus) est signalé dans le panneau des échantillons et ignoré pour le clonage (timbre seul), avec un avertissement après la génération. Une telle transcription faisait dériver les voix, qui lisaient un autre texte. Le chinois, le japonais et le coréen ne sont pas contrôlés.
+- Nouvelle image d'en-tête dans le README.
+
 ## 0.1.8 - 2026-11-11
 
 **English**

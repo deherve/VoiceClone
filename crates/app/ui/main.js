@@ -131,6 +131,7 @@ function sampleNotes() {
   const notes = [];
   if (!samples.length) notes.push(t('notes.none'));
   if (samples.some((s) => !s.ref_text.trim())) notes.push(t('notes.no_text'));
+  if (samples.some((s) => s.suspect)) notes.push(t('notes.mismatch'));
   if (total > WARN_AFTER_SEC) notes.push(t('notes.long', { total: fmt(total), limit: fmt(WARN_AFTER_SEC) }));
   $('sample-notes').textContent = notes.join(' ');
 }
@@ -147,7 +148,7 @@ async function loadSamples() {
     const text = el('textarea', { value: s.ref_text, rows: 3, placeholder: t('sample.placeholder') });
     text.setAttribute('aria-label', t('sample.transcript_aria', { n }));
     text.onchange = async () => {
-      try { await invoke('set_sample_text', { id: s.id, text: text.value }); s.ref_text = text.value; sampleNotes(); say(st, t('sample.saved')); }
+      try { await invoke('set_sample_text', { id: s.id, text: text.value }); await loadSamples(); say(st, t('sample.saved')); }
       catch (e) { fail(st, e); }
     };
     const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
@@ -306,7 +307,8 @@ async function generate() {
   say(st, t('compose.generating'));
   try {
     const r = await invoke('speak', { text, profile: p.name });
-    say(st, t('compose.done', { dur: fmt(r.duration_sec), s: r.elapsed_sec }));
+    say(st, [t('compose.done', { dur: fmt(r.duration_sec), s: r.elapsed_sec }), ...(r.warnings ?? [])].join(' '));
+    if (r.warnings?.length) st.classList.add('error');
   } catch (e) { fail(st, e); }
   busy = false;
   updateGo();
@@ -364,10 +366,20 @@ async function drawBars(box, id, enhanced) {
   box.replaceChildren(...peaks.map((p) => { const bar = el('i'); bar.style.height = `${4 + Math.round(p * 0.26)}px`; return bar; }));
 }
 
+let genTotal = 0;
+$('gen-clear').append(icon(...ICON_TRASH));
+$('gen-clear').onclick = async () => {
+  if (!genTotal || !confirm(t('gen.clear_confirm', { n: genTotal }))) return;
+  if (playingKey?.startsWith('generation:')) $('player').pause();
+  try { await invoke('delete_all_generations'); await loadGenerations(); say($('status'), t('gen.cleared')); } catch (e) { fail($('status'), e); }
+};
+
 async function loadGenerations() {
   const st = $('status');
   const list = await invoke('generations');
   $('gen-count').textContent = list.length ? tp('gen.count', { n: list.length }) : '';
+  $('gen-clear').disabled = !list.length;
+  genTotal = list.length;
   $('gen-list').replaceChildren(...list.map((g) => {
     const copy = el('button', { type: 'button', className: 'ghost icon', title: t('gen.copy') });
     copy.setAttribute('aria-label', t('gen.copy_aria'));
@@ -435,7 +447,9 @@ async function loadGenerations() {
         el('div', { className: 'player' }, playButton('generation', g.id, st), bars, el('span', { className: 'dur', textContent: fmt(g.duration_sec) })),
         el('div', { className: 'meta' },
           el('span', { className: 'new-badge', textContent: t('gen.new') }),
-          paint(el('span', { className: 'voice vc', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }), profiles.find((p) => p.name === g.profile)),
+          g.multi
+            ? el('span', { className: 'voice multi', textContent: t('gen.voice', { name: t('gen.multiple') }) })
+            : paint(el('span', { className: 'voice vc', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }), profiles.find((p) => p.name === g.profile)),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));
   }));

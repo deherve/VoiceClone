@@ -137,6 +137,19 @@ pub fn split_text(text: &str, max: usize) -> Vec<String> {
     chunks.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
 }
 
+/// La transcription d'un echantillon est-elle compatible avec la duree de son audio ? Une parole normale fait environ
+/// 10 a 25 caracteres par seconde ; hors de 7..=30, le texte ne correspond pas a ce qui est dit (enregistrement coupe,
+/// texte propose laisse en place...) et le clonage avec transcription se met a deriver (voix qui lit n'importe quoi).
+/// Chinois, japonais et coreen (peu de caracteres par seconde) ne sont pas controles.
+pub fn transcript_plausible(text: &str, secs: f64) -> bool {
+    let text = text.trim();
+    let cjk = |c: char| ('\u{3000}'..='\u{9fff}').contains(&c) || ('\u{ac00}'..='\u{d7af}').contains(&c) || ('\u{f900}'..='\u{faff}').contains(&c);
+    if text.is_empty() || text.chars().any(cjk) || secs <= 0.0 {
+        return true;
+    }
+    (7.0..=30.0).contains(&(text.chars().count() as f64 / secs))
+}
+
 /// Retire le silence au debut et a la fin d'un morceau (il en garde `keep_ms` de chaque cote) : les pauses demandees
 /// par `[pause]` sont alors exactes, sans s'ajouter au silence de fin que le modele laisse apres chaque phrase.
 pub fn trim_silence(pcm: &mut Vec<f32>, keep_ms: usize) {
@@ -246,6 +259,15 @@ mod tests {
         assert_eq!(split_text("Un. Deux ! Trois…\nQuatre", 8), ["Un.", "Deux !", "Trois…", "Quatre"]);
         assert_eq!(split_text("Version 3.5 sortie. Fin.", 12), ["Version 3.5 sortie.", "Fin."]);
         assert!(split_text(" \n ", 10).is_empty());
+    }
+
+    #[test]
+    fn transcript_must_fit_the_audio() {
+        let sample = "Ce matin, le soleil se lève doucement sur les toits de Lyon. ".repeat(6); // 366 caracteres
+        assert!(transcript_plausible(&sample, 22.6)); // 16 car/s : normal
+        assert!(!transcript_plausible(&sample, 10.6)); // 35 car/s : audio coupe
+        assert!(!transcript_plausible("Bonjour", 30.0)); // 0,2 car/s : texte trop court pour l'audio
+        assert!(transcript_plausible("", 10.0) && transcript_plausible("你好，世界你好世界", 30.0));
     }
 
     #[test]

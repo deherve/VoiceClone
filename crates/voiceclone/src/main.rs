@@ -83,6 +83,9 @@ fn speak(args: &[String], dir: &Path) -> R<()> {
     };
     // Sortie standard : le chemin seul (facile a recuperer dans un script) ; le detail va sur la sortie d'erreur.
     println!("{}", result["path"].as_str().unwrap_or_default());
+    for w in result["warnings"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        eprintln!("{}", tr!("attention : {}", "warning: {}", w));
+    }
     eprintln!(
         "{}",
         tr!("{} s d'audio en {} s (voix {}, qualité {})", "{} s of audio in {} s (voice {}, quality {})",

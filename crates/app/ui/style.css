@@ -276,3 +276,6 @@ progress { width: 160px; accent-color: var(--accent); }
 .hl-pause { color: var(--muted); font-style: italic; }
 .hl-bad { color: var(--danger); text-decoration: underline wavy; }
 [data-theme="conversation"] .editor { flex: none; min-height: 0; }
+
+.voice.multi { color: var(--text); border-color: var(--muted); background: transparent; }
+[data-theme="atelier"] .voice.multi { background: transparent; }

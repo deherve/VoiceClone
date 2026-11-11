@@ -72,6 +72,11 @@ fn mark_heard(app: Core<'_>, id: i64) -> R<()> {
 }
 
 #[tauri::command]
+fn delete_all_generations(app: Core<'_>) -> R<usize> {
+    app.delete_all_generations()
+}
+
+#[tauri::command]
 fn delete_generation(app: Core<'_>, id: i64) -> R<()> {
     app.delete_generation(id)
 }
@@ -315,7 +320,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
-            connection_info, open_audios_dir, mark_heard, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
+            connection_info, open_audios_dir, mark_heard, delete_all_generations, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

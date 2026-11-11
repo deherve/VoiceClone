@@ -28,6 +28,10 @@ const MAX_CHUNK_CHARS: usize = 300;
 const MAX_CHUNK_SEC: usize = 30;
 const DEFAULT_SEED: i64 = 7; // meme graine que les generations Voicebox existantes : resultat reproductible
 
+fn sample_secs(path: &str) -> f64 {
+    hound::WavReader::open(path).map(|r| r.duration() as f64 / audio::SR as f64).unwrap_or(0.0)
+}
+
 /// Synthetise `text` ; si le resultat depasse `MAX_CHUNK_SEC`, le coupe en deux et regenere chaque moitie.
 fn synth_capped(engine: &Engine, text: &str, lang: &str, voice: &Voice, seed: i64, out: &mut Vec<f32>) -> R<()> {
     let pcm = engine.synth(text, lang, voice, seed)?;
@@ -419,8 +423,9 @@ impl App {
             samples
                 .iter()
                 .map(|s| {
-                    let dur = hound::WavReader::open(&s.audio).map(|r| r.duration() as f64 / audio::SR as f64).unwrap_or(0.0);
-                    json!({"id": s.id, "ref_text": s.ref_text, "duration_sec": (dur * 10.0).round() / 10.0})
+                    let dur = sample_secs(&s.audio);
+                    json!({"id": s.id, "ref_text": s.ref_text, "duration_sec": (dur * 10.0).round() / 10.0,
+                        "suspect": !audio::transcript_plausible(&s.ref_text, dur)})
                 })
                 .collect(),
         ))
@@ -440,6 +445,22 @@ impl App {
             let _ = fs::remove_file(p);
         }
         Ok(())
+    }
+
+    /// Supprime toutes les generations (historique et fichiers audio). Retourne leur nombre.
+    pub fn delete_all_generations(&self) -> R<usize> {
+        let mut n = 0;
+        loop {
+            let batch = self.list_generations(500)?;
+            let ids: Vec<i64> = batch.as_array().into_iter().flatten().filter_map(|g| g["id"].as_i64()).collect();
+            if ids.is_empty() {
+                return Ok(n);
+            }
+            for id in ids {
+                self.delete_generation(id)?;
+                n += 1;
+            }
+        }
     }
 
     /// Active ou desactive l'amelioration (egaliseur + normalisation) d'une generation.
@@ -578,11 +599,21 @@ impl App {
             }
             (cast, steps)
         };
-        let p = cast[0].0.clone();
+        // Voix qui parlent vraiment (dans l'ordre) : la generation est rangee sous la premiere ; plusieurs = « multiple ».
+        let used: Vec<usize> = steps.iter().fold(vec![], |mut u, s| {
+            if let Step::Say(i, _) = s {
+                if !u.contains(i) {
+                    u.push(*i);
+                }
+            }
+            u
+        });
+        let p = cast[used.first().copied().unwrap_or(0)].0.clone();
         let (lang, seed) = (lang.map(String::from), seed.unwrap_or(DEFAULT_SEED));
         let t0 = Instant::now();
 
         let mut pcm = Vec::new();
+        let mut warnings: Vec<String> = vec![];
         {
             let mut rt = self.rt.lock().unwrap();
             let Runtime { engine, voices, device, note } = &mut *rt;
@@ -599,7 +630,18 @@ impl App {
             }
             let engine = &engine.as_ref().unwrap().1;
             for (vp, samples) in &cast {
-                let signature: String = samples.iter().map(|s| format!("{}:{}|", s.id, s.ref_text)).collect();
+                // Une transcription qui ne correspond pas a l'audio (enregistrement coupe, texte propose laisse en place)
+                // fait deriver le clonage : on l'ignore alors (timbre seul, moins fidele) et on le dit.
+                let bad: Vec<usize> = samples.iter().enumerate()
+                    .filter(|(_, s)| !audio::transcript_plausible(&s.ref_text, sample_secs(&s.audio))).map(|(i, _)| i + 1).collect();
+                if !bad.is_empty() {
+                    warnings.push(tr!(
+                        "voix « {} » : la transcription de l'échantillon {} ne correspond pas à son audio ; elle est ignorée (clonage moins fidèle). Corrigez-la dans l'application.",
+                        "voice \"{}\": the transcript of sample {} does not match its audio; it is ignored (less faithful cloning). Fix it in the app.",
+                        vp.name, bad.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")));
+                }
+                let complete = bad.is_empty() && samples.iter().all(|s| !s.ref_text.trim().is_empty());
+                let signature: String = samples.iter().map(|s| format!("{}:{}|", s.id, s.ref_text)).collect::<String>() + if complete { "icl" } else { "x" };
                 if voices.get(&vp.id).map_or(true, |(sig, _)| *sig != signature) {
                     // Tous les echantillons du profil servent, bout a bout, avec 300 ms de silence entre eux.
                     let mut reference = Vec::new();
@@ -607,9 +649,7 @@ impl App {
                         reference.extend(audio::read_wav_24k(Path::new(&s.audio))?);
                         reference.resize(reference.len() + audio::SR as usize * 3 / 10, 0.0);
                     }
-                    // Le clonage fidele exige la transcription de tout l'audio ; s'il en manque une,
-                    // on retombe sur le timbre seul (moins fidele).
-                    let complete = samples.iter().all(|s| !s.ref_text.trim().is_empty());
+                    // Le clonage fidele exige la transcription (correcte) de tout l'audio ; sinon timbre seul (moins fidele).
                     let ref_text = complete.then(|| samples.iter().map(|s| s.ref_text.trim()).collect::<Vec<_>>().join(" "));
                     voices.insert(vp.id, (signature, engine.voice(&reference, ref_text.as_deref())?));
                 }
@@ -639,6 +679,9 @@ impl App {
         audio::write_wav(&stored, &pcm)?;
         let duration = pcm.len() as f64 / audio::SR as f64;
         let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed)?;
+        if used.len() > 1 {
+            self.store.lock().unwrap().set_multi(id)?;
+        }
         // La generation existe des maintenant dans l'historique ; si la suite echoue on la retire pour ne pas laisser d'orphelin.
         let finish = || -> R<PathBuf> {
             if enhanced {
@@ -663,7 +706,7 @@ impl App {
             hook();
         }
         Ok(json!({"id": id, "path": path, "duration_sec": (duration * 100.0).round() / 100.0, "profile": p.name,
-            "seed": seed, "enhanced": enhanced, "elapsed_sec": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0}))
+            "seed": seed, "enhanced": enhanced, "elapsed_sec": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0, "warnings": warnings}))
     }
 
     /// Copie les profils clones de Voicebox (dossier de donnees `sh.voicebox.app`), sans y toucher.
@@ -743,6 +786,26 @@ mod tests {
         // Un reglage abime dans la base retombe sur « auto » au lieu de passer tel quel au moteur.
         app.store.lock().unwrap().set_setting("fa", "n'importe quoi").unwrap();
         assert_eq!(app.gpu_status()["fa"], "auto");
+        drop(app);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn all_generations_can_be_cleared() {
+        let dir = std::env::temp_dir().join(format!("voiceclone-clear-{}", std::process::id()));
+        let app = App::open(dir.clone()).unwrap();
+        let pid = app.create_profile("Zen", "french").unwrap();
+        let mut files = vec![];
+        for i in 0..3 {
+            let f = dir.join(format!("g{i}.wav"));
+            fs::write(&f, b"x").unwrap();
+            app.store.lock().unwrap().add_generation(pid, "x", &f.to_string_lossy(), 1.0, 7).unwrap();
+            files.push(f);
+        }
+        assert_eq!(app.delete_all_generations().unwrap(), 3);
+        assert!(app.list_generations(10).unwrap().as_array().unwrap().is_empty());
+        assert!(files.iter().all(|f| !f.exists()));
+        assert_eq!(app.delete_all_generations().unwrap(), 0);
         drop(app);
         let _ = fs::remove_dir_all(dir);
     }

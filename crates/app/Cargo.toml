@@ -1,0 +1,18 @@
+[package]
+name = "voiceclone-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "VoiceClone"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# custom-protocol : sert l'interface embarquee (dossier ui/) sans passer par la CLI Tauri.
+tauri = { version = "2", features = ["custom-protocol"] }
+serde_json = "1"
+rfd = "0.15"
+voiceclone = { path = "../voiceclone" }

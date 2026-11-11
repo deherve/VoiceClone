@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["crates/qwen-sys", "crates/voiceclone", "crates/app"]
+
+[profile.release]
+opt-level = 3

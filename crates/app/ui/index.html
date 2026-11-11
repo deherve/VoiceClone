@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoiceClone</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="#ffb03b"/><g fill="#1a1300"><rect x="5" y="11" width="2.6" height="6" rx="1.3"/><rect x="9.4" y="7" width="2.6" height="14" rx="1.3"/><rect x="13.8" y="4.5" width="2.6" height="19" rx="1.3"/><rect x="18.2" y="8" width="2.6" height="12" rx="1.3"/><rect x="22.6" y="11.5" width="2" height="5" rx="1"/></g></svg>
+      <h1>VoiceClone</h1>
+    </div>
+    <nav aria-label="Pages">
+      <button type="button" id="nav-studio" aria-pressed="true">Studio</button>
+      <button type="button" id="nav-settings" aria-pressed="false">Paramètres</button>
+    </nav>
+    <span class="grow"></span>
+    <span id="mcp" class="chip" role="status"><span class="dot" aria-hidden="true"></span><span id="mcp-text"></span></span>
+  </header>
+
+  <section id="settings" aria-labelledby="h-theme" hidden>
+    <h2 id="h-theme">Apparence</h2>
+    <p id="themes-hint" class="hint">Thème de l'interface. Le choix est mémorisé.</p>
+    <div id="themes" class="themes" role="radiogroup" aria-labelledby="themes-hint"></div>
+
+    <h2 id="h-gpu">Carte graphique</h2>
+    <p id="gpu-summary" class="hint"></p>
+    <label for="gpu-device">Périphérique de calcul</label>
+    <select id="gpu-device"></select>
+    <p id="gpu-best-note" class="hint" hidden></p>
+    <p id="gpu-nvidia" class="hint warn" hidden>Une carte NVIDIA est détectée via Vulkan : elle fonctionne, mais la version CUDA de VoiceClone (fichier ggml-cuda.dll) serait plus rapide.</p>
+    <p id="gpu-note" class="hint warn"></p>
+    <details id="gpu-advanced">
+      <summary>Options avancées</summary>
+      <p class="hint">« Automatique » convient dans presque tous les cas. À modifier seulement si le son est abîmé ou si la génération échoue sur votre carte.</p>
+      <label for="gpu-fa">Attention « flash » (calcul plus rapide sur certaines cartes)</label>
+      <select id="gpu-fa"></select>
+      <label for="gpu-clamp">Garde FP16 (évite les débordements des cartes NVIDIA anciennes, un peu plus lent)</label>
+      <select id="gpu-clamp"></select>
+    </details>
+    <p id="gpu-status" class="status" role="status"></p>
+
+    <h2 id="h-settings">Modèles</h2>
+    <p class="hint">Un modèle de synthèse et le codec audio sont nécessaires. Les fichiers viennent de <span id="models-source"></span>. Changer de modèle prend effet à la génération suivante.</p>
+    <ul id="model-list" class="list"></ul>
+    <p id="models-status" class="status" role="status"></p>
+
+    <h2>Mémoire</h2>
+    <p class="hint" id="memory-state"></p>
+    <div class="row">
+      <button type="button" id="unload">Décharger le modèle</button>
+      <button type="button" id="open-models">Ouvrir le dossier des modèles</button>
+    </div>
+    <p class="hint" id="models-dir"></p>
+  </section>
+
+  <main id="studio">
+    <section id="voices" aria-labelledby="h-voices">
+      <h2 id="h-voices">Voix</h2>
+      <ul id="profile-list" class="list"></ul>
+
+      <details id="new-profile-box">
+        <summary>+ Nouvelle voix</summary>
+        <form id="new-profile">
+          <label for="np-name">Nom</label>
+          <input id="np-name" required maxlength="60" autocomplete="off">
+          <label for="np-lang">Langue</label>
+          <select id="np-lang"></select>
+          <button type="submit">Ajouter la voix</button>
+        </form>
+      </details>
+
+      <div id="samples-panel" hidden>
+        <h2>Échantillons de <span id="sp-name"></span></h2>
+        <p class="hint">Enregistrez-vous ou importez un fichier audio, sans limite de durée. La transcription exacte rend le clonage plus fidèle.</p>
+        <div class="row split">
+          <button type="button" id="rec"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="rec-label">Enregistrer</span></button>
+          <button type="button" id="import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Importer</button>
+          <input type="file" id="file" accept="audio/*,video/*" hidden>
+        </div>
+        <blockquote id="read-me" hidden></blockquote>
+        <p id="sample-status" class="status" role="status"></p>
+        <ul id="sample-list" class="list"></ul>
+        <p id="sample-notes" class="hint warn"></p>
+      </div>
+    </section>
+
+    <section id="compose" aria-labelledby="h-compose">
+      <div class="row head">
+        <h2 id="h-compose"><label for="text">Texte à dire</label></h2>
+        <button type="button" id="clear" class="ghost" disabled>Effacer le texte</button>
+      </div>
+      <textarea id="text" placeholder="Saisissez le texte à générer avec la voix sélectionnée."></textarea>
+      <div class="row foot">
+        <span id="count" class="voice-line"></span>
+        <span class="grow hint right">Ctrl + Entrée pour lancer</span>
+        <button type="button" id="go" class="primary" disabled>Générer</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </section>
+
+    <section id="history" aria-labelledby="h-history">
+      <div class="row head">
+        <h2 id="h-history">Générations</h2>
+        <span id="gen-count" class="hint"></span>
+      </div>
+      <ul id="gen-list" class="list"></ul>
+    </section>
+  </main>
+
+  <audio id="player"></audio>
+  <script src="main.js"></script>
+</body>
+</html>

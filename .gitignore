@@ -1,0 +1,14 @@
+# Compilation
+/target/
+/vendor/qwentts/build/
+/vendor/qwentts/build-cuda/
+
+# Essais locaux : audios generes et echantillons de voix (donnees personnelles)
+/out/
+
+# Modeles (plusieurs Go, telecharges depuis Paramètres) et bases de donnees
+*.gguf
+*.db
+
+# Genere par tauri-build
+/crates/app/gen/

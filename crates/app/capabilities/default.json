@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Fenetre principale : evenements et fenetre uniquement, les commandes de l'application sont definies dans main.rs.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

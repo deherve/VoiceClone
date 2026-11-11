@@ -3,7 +3,8 @@
 # Prerequis : `gh` connecte, version deja commitee et poussee sur main, moteur compile (build-qwen.cmd).
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
-    [string]$Notes = ''
+    [string]$Notes = '',
+    [switch]$SansPublier   # assemble le zip seulement, pour le tester avant de publier
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
@@ -58,6 +59,7 @@ $zip = "$root\target\dist\$name.zip"
 Compress-Archive -Path "$dist\*" -DestinationPath $zip
 "{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dist -Recurse -File).Count
 
+if ($SansPublier) { return }
 $args_ = @("v$Version", $zip, '--target', 'main', '--title', "VoiceClone $Version")
 if ($Notes) { $args_ += @('--notes', $Notes) } else { $args_ += '--generate-notes' }
 gh release create @args_

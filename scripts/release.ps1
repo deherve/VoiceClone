@@ -73,6 +73,15 @@ Clonage de voix et generation d'audio en local, depuis une fenetre ou depuis Cla
 - Code source et mises a jour : https://github.com/deherve/VoiceClone  -  Soutenir : https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 "@
 
+# Seule voix livree : Zen (jamais dans le depot git). Exportee depuis les donnees locales si release-assets\Voix\Zen manque.
+$voices = "$root\release-assets\Voix"
+if (-not (Test-Path "$voices\Zen\voice.json")) {
+    & "$rel\voiceclone-server.exe" export-voice Zen "$voices\Zen" | Out-Host
+    if ($LASTEXITCODE -or -not (Test-Path "$voices\Zen\voice.json")) { throw 'Export de la voix Zen impossible (profil Zen absent ?).' }
+}
+$extra = Get-ChildItem $voices -Directory | Where-Object Name -ne 'Zen'
+if ($extra) { throw "release-assets\Voix ne doit contenir que Zen : $($extra.Name -join ', ')" }
+
 Remove-Item "$root\target\dist" -Recurse -Force -ErrorAction SilentlyContinue
 function Assemble([string]$name, [string[]]$exes) {
     $dir = "$root\target\dist\$name"
@@ -87,6 +96,9 @@ function Assemble([string]$name, [string[]]$exes) {
     Set-Content "$dir\README.txt" $readme -Encoding UTF8
     & "$root\scripts\check-deps.ps1" -Dir $dir | Out-Host
     if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }
+    # Garde-fou : les seuls fichiers audio de l'archive sont les echantillons de Zen.
+    $audio = Get-ChildItem $dir -Recurse -File | Where-Object { $_.Extension -match '^\.(wav|mp3|flac|ogg|m4a)$' -and $_.FullName -notmatch '\Voix\Zen\sample-\d+\.wav$' }
+    if ($audio) { throw "Fichiers audio inattendus dans l'archive : $($audio.Name -join ', ')" }
     $zip = "$root\target\dist\$name.zip"
     Compress-Archive -Path "$dir\*" -DestinationPath $zip
     Write-Host ("{0} : {1:N1} Mo, {2} fichiers" -f $zip, ((Get-Item $zip).Length / 1MB), (Get-ChildItem $dir -Recurse -File).Count)

@@ -25,10 +25,15 @@ $notes = $m.Groups[1].Value.Trim()
 
 node "$root\scripts\check-i18n.mjs"
 if ($LASTEXITCODE) { throw 'traductions incohérentes' }
+# Cargo ecrit sa progression sur stderr : avec ErrorActionPreference=Stop, PowerShell 5.1 y verrait une erreur.
+$ErrorActionPreference = 'Continue'
 cargo test --release -p voiceclone 2>&1 | Out-Null
-if ($LASTEXITCODE) { throw 'les tests échouent' }
+$tests = $LASTEXITCODE
 cargo build --release 2>&1 | Out-Null
-if ($LASTEXITCODE) { throw 'cargo build a échoué' }
+$build = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($tests) { throw 'les tests échouent' }
+if ($build) { throw 'cargo build a échoué' }
 
 $rel = "$root\target\release"
 $redistRoot = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\*" -Directory | Where-Object { Test-Path "$($_.FullName)\x64\Microsoft.VC143.CRT" } | Sort-Object Name | Select-Object -Last 1

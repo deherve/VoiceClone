@@ -415,6 +415,65 @@ async function changeLanguage(code) {
   await renderAll();
 }
 
+// ---------------------------------------------------------------- parametres : connecter une IA ou un script
+// Les chemins viennent du programme en cours (connection_info) : ils suivent l'endroit ou VoiceClone est installe.
+let connInfo = null;
+
+function codeBlock(title, text, note) {
+  const copy = el('button', { type: 'button', className: 'ghost', textContent: t('conn.copy') });
+  copy.setAttribute('aria-label', t('conn.copy_aria', { title }));
+  copy.onclick = async () => {
+    try {
+      await copyText(text);
+      copy.textContent = t('conn.copied');
+      say($('conn-status'), t('conn.copied_status'));
+      setTimeout(() => { copy.textContent = t('conn.copy'); }, 1500);
+    } catch (e) { fail($('conn-status'), e); }
+  };
+  return el('div', { className: 'codeblock' },
+    el('div', { className: 'row head' }, el('strong', { textContent: title }), copy),
+    el('pre', { textContent: text }),
+    note ? el('p', { className: 'hint', textContent: note }) : '');
+}
+
+function renderConnection() {
+  const c = connInfo;
+  if (!c) return;
+  const hasServer = !!c.server;
+  $('conn-warn').hidden = hasServer;
+  const server = c.server ?? 'voiceclone-server.exe';
+  const v = { url: c.url, server, voice: profiles[0]?.name ?? 'Zen', lang: t('conn.sample_lang'), sample: t('conn.sample'), downloads: c.downloads ?? '%USERPROFILE%\\Downloads' };
+  const cli = (prefix, cmt) => [
+    `${cmt} ${t('conn.cmt_std')}`, `${prefix}"${server}" speak "${v.sample}" --lang ${v.lang} --quality standard --voice "${v.voice}"`,
+    `${cmt} ${t('conn.cmt_enh')}`, `${prefix}"${server}" speak "${v.sample}" --lang ${v.lang} --quality enhanced --voice "${v.voice}"`,
+    `${cmt} ${t('conn.cmt_out')}`, `${prefix}"${server}" speak "${v.sample}" -l ${v.lang} -q enhanced -v "${v.voice}" -o "C:\\project\\voice\\01.wav"`
+  ].join('\n');
+  const blocks = [
+    codeBlock(t('conn.mcp_json'), `{ "mcpServers": { "voiceclone": { "type": "http", "url": "${c.url}" } } }`),
+    codeBlock(t('conn.claude_cmd'), `claude mcp add --transport http voiceclone ${c.url}`)
+  ];
+  if (hasServer) {
+    blocks.push(
+      codeBlock(t('conn.start'), `Start-Process "${server}" -WindowStyle Hidden`, t('conn.start_note')),
+      codeBlock(t('conn.cli_ps'), cli('& ', '#'), t('conn.cli_note', v)),
+      codeBlock(t('conn.cli_cmd'), cli('', 'REM')));
+  }
+  // Instructions completes : l'IA ou le skill n'a plus qu'a les lire.
+  const doc = t('conn.doc', v);
+  const aiCopy = el('button', { type: 'button', className: 'primary', textContent: t('conn.ai_copy') });
+  aiCopy.onclick = async () => {
+    try { await copyText(doc); say($('conn-status'), t('conn.copied_status')); } catch (e) { fail($('conn-status'), e); }
+  };
+  blocks.push(el('div', { className: 'codeblock' },
+    el('div', { className: 'row head' }, el('strong', { textContent: t('conn.ai') }), aiCopy),
+    el('details', {}, el('summary', { textContent: t('conn.ai_preview') }), el('pre', { textContent: doc }))));
+  $('conn-blocks').replaceChildren(...blocks);
+}
+async function loadConnection() {
+  connInfo = await invoke('connection_info');
+  renderConnection();
+}
+
 // ---------------------------------------------------------------- parametres : mises a jour
 function renderUpdate() {
   $('upd-version').textContent = t('upd.installed', { version: appVersion });
@@ -603,6 +662,7 @@ $('nav-settings').onclick = () => show('settings');
 
 function loadSettings() {
   renderUpdate();
+  loadConnection().catch((e) => fail($('conn-status'), e));
   loadModels().catch((e) => fail($('models-status'), e));
   loadGpu().catch((e) => fail($('gpu-status'), e));
   loadComponents().catch((e) => fail($('comp-status'), e));
@@ -622,6 +682,7 @@ async function renderAll() {
   renderThemeChoices();
   renderMcp();
   renderUpdate();
+  renderConnection();
   if (recorder) $('rec-label').textContent = t('samples.stop_rec', { time: '0:00' });
   await loadProfiles();
   await loadGenerations();

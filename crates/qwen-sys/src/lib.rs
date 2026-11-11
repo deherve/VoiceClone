@@ -81,6 +81,8 @@ pub const GGML_DEV_GPU: c_int = 1;
 pub const GGML_DEV_IGPU: c_int = 2;
 
 extern "C" {
+    pub fn ggml_log_set(cb: Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>, user: *mut c_void);
+    pub fn qt_log_set(cb: Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>, user: *mut c_void);
     pub fn ggml_backend_load_all();
     pub fn ggml_backend_dev_count() -> usize;
     pub fn ggml_backend_dev_get(i: usize) -> ggml_backend_dev_t;

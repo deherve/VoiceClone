@@ -81,6 +81,18 @@ pub struct Device {
     pub free_mb: u64,
 }
 
+unsafe extern "C" fn mute(_level: std::os::raw::c_int, _msg: *const std::os::raw::c_char, _user: *mut std::os::raw::c_void) {}
+
+/// Coupe les journaux du moteur et de ggml (la ligne de commande n'affiche que le chemin du fichier et un resume ;
+/// les erreurs restent renvoyees par les fonctions, pas par le journal). A appeler avant le premier chargement.
+pub fn silence_logs() {
+    // SAFETY : `mute` est une fonction `extern "C"` sans etat, valable pour toute la duree du processus.
+    unsafe {
+        ggml_log_set(Some(mute), std::ptr::null_mut());
+        qt_log_set(Some(mute), std::ptr::null_mut());
+    }
+}
+
 /// Liste les peripheriques disponibles (une seule entree par nom). Charge les backends ggml au premier appel :
 /// les DLL ggml-vulkan.dll / ggml-cuda.dll presentes a cote de l'executable.
 pub fn devices() -> Vec<Device> {

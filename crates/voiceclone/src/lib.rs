@@ -2,6 +2,7 @@
 #[macro_use]
 pub mod i18n;
 pub mod audio;
+pub mod cli;
 pub mod components;
 pub mod engine;
 pub mod mcp;

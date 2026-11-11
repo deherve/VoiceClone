@@ -36,9 +36,7 @@ VoiceClone is inspired by [**Voicebox**](https://github.com/jamiepine/voicebox) 
 
 ### Download and first run
 
-1. Get the latest archive from the [Releases](https://github.com/deherve/VoiceClone/releases) page:
-   - `VoiceClone-<version>-windows-x64.zip`: the application with its window, plus the headless server.
-   - `VoiceClone-Server-<version>-windows-x64.zip`: the headless server only (MCP connector, no window, no WebView2 needed).
+1. Get the latest archive from the [Releases](https://github.com/deherve/VoiceClone/releases) page: `VoiceClone-<version>-windows-x64.zip`. It contains the application with its window (`VoiceClone.exe`) and the version without a window (`voiceclone-server.exe`) in the same folder.
 2. Unzip anywhere and run `VoiceClone.exe`. Nothing to install. Windows may warn about an unsigned program (SmartScreen): choose "More info", then "Run anyway".
 3. **Settings > Models**: download the synthesis model (about 2 GB) and the audio codec (about 0.3 GB).
 4. **Studio**: create a voice, add a sample and its transcript, type a text, **Generate**.
@@ -46,15 +44,27 @@ VoiceClone is inspired by [**Voicebox**](https://github.com/jamiepine/voicebox) 
 *Portable mode*: create an empty file named `portable` next to the program; your data then stay in a `data` folder instead of `%APPDATA%\VoiceClone`.
 Requirements: Windows 10/11 64-bit, a graphics driver with Vulkan (otherwise the processor is used, about 4 times slower).
 
-### Using it from Claude Code
+### Using it from Claude Code, an AI or a script
 
-Start `VoiceClone.exe` or `voiceclone-server.exe` (not both: they share the port), then declare the connector in your project's `.mcp.json`:
+**Settings > "Connect an AI or a script"** gives everything ready to copy, with the real paths of your installation (they follow wherever the program is): the MCP declaration, the Claude Code command, how to start the server version, the command line, and complete instructions to paste into a skill or an AI. Start `VoiceClone.exe` or `voiceclone-server.exe` (not both: they share the port), then declare the connector in your project's `.mcp.json`:
 
 ```json
 { "mcpServers": { "voiceclone": { "type": "http", "url": "http://127.0.0.1:17494/mcp" } } }
 ```
 
-Then ask for example: *"say this sentence with the voice Zen and write it to `public/voice/01.wav`, enhanced"* → `speak(text, profile="Zen", language="french", enhanced=true, output_path="…\01.wav")`.
+Then ask for example: *"say this sentence with the voice Zen and write it to `public/voice/01.wav`, enhanced"* → `speak(text, profile="Zen", language="french", enhanced=true, output_path="…\01.wav")` (`enhanced=false` or omitted: standard quality).
+
+**Quick command line** (no MCP needed): `voiceclone-server.exe speak "Hello everyone" --lang en --quality enhanced --voice Zen`
+
+| Option | Meaning |
+|---|---|
+| `"text"` or `-t`, `--text` | text to say (`-` reads standard input) |
+| `-l`, `--lang` | `fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru` (default: the voice's language) |
+| `-q`, `--quality` | `standard` (default) or `enhanced` (voice equalizer + normalized volume) |
+| `-v`, `--voice` | voice name (default: the first voice) |
+| `-o`, `--out` | `.wav` file or folder (default: your **Downloads** folder; an existing file is never replaced unless you name it) |
+
+It prints the path of the file created. It uses the running server when there is one (fast), otherwise it loads the model for that single generation (about ten seconds more).
 
 ### Graphics cards and components
 
@@ -125,9 +135,7 @@ VoiceClone s'inspire de [**Voicebox**](https://github.com/jamiepine/voicebox) de
 
 ### Téléchargement et premier lancement
 
-1. Récupérez la dernière archive sur la page [Releases](https://github.com/deherve/VoiceClone/releases) :
-   - `VoiceClone-<version>-windows-x64.zip` : l'application avec sa fenêtre, plus la version serveur.
-   - `VoiceClone-Server-<version>-windows-x64.zip` : la version serveur seule (connecteur MCP, sans fenêtre, sans WebView2).
+1. Récupérez la dernière archive sur la page [Releases](https://github.com/deherve/VoiceClone/releases) : `VoiceClone-<version>-windows-x64.zip`. Elle contient l'application avec sa fenêtre (`VoiceClone.exe`) et la version sans fenêtre (`voiceclone-server.exe`) dans le même dossier.
 2. Décompressez n'importe où et lancez `VoiceClone.exe`. Rien à installer. Windows peut avertir qu'un programme n'est pas signé (SmartScreen) : « Informations complémentaires », puis « Exécuter quand même ».
 3. **Paramètres > Modèles** : téléchargez le modèle de synthèse (environ 2 Go) et le codec audio (environ 0,3 Go).
 4. **Studio** : créez une voix, ajoutez un échantillon et sa transcription, saisissez un texte, **Générer**.
@@ -135,15 +143,27 @@ VoiceClone s'inspire de [**Voicebox**](https://github.com/jamiepine/voicebox) de
 *Mode portable* : créez un fichier vide nommé `portable` à côté du programme ; vos données restent alors dans un dossier `data` au lieu de `%APPDATA%\VoiceClone`.
 Prérequis : Windows 10/11 64 bits, un pilote graphique avec Vulkan (sinon le processeur est utilisé, environ 4 fois plus lent).
 
-### Utilisation depuis Claude Code
+### Utilisation depuis Claude Code, une IA ou un script
 
-Lancez `VoiceClone.exe` ou `voiceclone-server.exe` (pas les deux : ils partagent le port), puis déclarez le connecteur dans le `.mcp.json` de votre projet :
+**Paramètres > « Connecter une IA ou un script »** donne tout ce qu'il faut à copier, avec les chemins réels de votre installation (ils suivent l'endroit où se trouve le programme) : la déclaration MCP, la commande de Claude Code, le lancement de la version serveur, la ligne de commande et des instructions complètes à coller dans un skill ou une IA. Lancez `VoiceClone.exe` ou `voiceclone-server.exe` (pas les deux : ils partagent le port), puis déclarez le connecteur dans le `.mcp.json` de votre projet :
 
 ```json
 { "mcpServers": { "voiceclone": { "type": "http", "url": "http://127.0.0.1:17494/mcp" } } }
 ```
 
-Demandez ensuite par exemple : *« dis cette phrase avec la voix Zen et écris-la dans `public/voix/01.wav`, en version améliorée »* → `speak(text, profile="Zen", language="french", enhanced=true, output_path="…\01.wav")`.
+Demandez ensuite par exemple : *« dis cette phrase avec la voix Zen et écris-la dans `public/voix/01.wav`, en version améliorée »* → `speak(text, profile="Zen", language="french", enhanced=true, output_path="…\01.wav")` (`enhanced=false` ou absent : qualité standard).
+
+**Ligne de commande rapide** (sans MCP) : `voiceclone-server.exe speak "Bonjour à tous" --lang fr --quality ameliore --voice Zen`
+
+| Option | Rôle |
+|---|---|
+| `"texte"` ou `-t`, `--text` | texte à dire (`-` lit l'entrée standard) |
+| `-l`, `--lang` | `fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru` (défaut : langue de la voix) |
+| `-q`, `--quality` | `standard` (défaut) ou `ameliore` / `enhanced` (égaliseur de voix + volume normalisé) |
+| `-v`, `--voice` | nom de la voix (défaut : la première voix) |
+| `-o`, `--out` | fichier `.wav` ou dossier (défaut : le dossier **Téléchargements** ; un fichier existant n'est jamais remplacé sauf si vous le nommez) |
+
+Affiche le chemin du fichier créé. Utilise le serveur s'il tourne déjà (rapide), sinon charge le modèle pour cette seule génération (une dizaine de secondes de plus).
 
 ### Cartes graphiques et composants
 

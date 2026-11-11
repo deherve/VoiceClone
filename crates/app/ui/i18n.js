@@ -67,6 +67,61 @@ const I18N = {
     'theme.console': 'Console', 'theme.console_desc': 'Graphite et turquoise, style studio audio',
     'theme.conversation': 'Conversation', 'theme.conversation_desc': 'Clair et arrondi, générations en bulles de discussion',
 
+    // Connexion IA / ligne de commande
+    'conn.title': 'Connecter une IA ou un script',
+    'conn.hint': "Copiez ces éléments dans votre IA, votre skill ou votre script. Les chemins sont ceux de cette installation de VoiceClone : ils suivent l'endroit où le programme se trouve.",
+    'conn.no_server': "Le fichier voiceclone-server.exe est introuvable à côté de l'application : la version serveur et la ligne de commande ne sont pas disponibles dans cette installation. Le connecteur MCP de la fenêtre, lui, fonctionne.",
+    'conn.copy': 'Copier', 'conn.copied': 'Copié', 'conn.copy_aria': 'Copier : {title}', 'conn.copied_status': 'Copié dans le presse-papiers.',
+    'conn.mcp_json': 'Déclaration MCP (.mcp.json du projet)', 'conn.claude_cmd': 'Ou avec la commande de Claude Code',
+    'conn.start': 'Lancer la version serveur, sans fenêtre (PowerShell)',
+    'conn.start_note': "Inutile si VoiceClone est déjà ouvert : sa fenêtre expose le même connecteur. Ne lancez pas les deux en même temps (même port).",
+    'conn.cli_ps': 'Génération rapide en ligne de commande (PowerShell)', 'conn.cli_cmd': 'Génération rapide en ligne de commande (Invite de commandes)',
+    'conn.cmt_std': 'qualité standard', 'conn.cmt_enh': 'qualité améliorée (égaliseur + volume normalisé)', 'conn.cmt_out': 'destination personnalisée (sans --out : dossier Téléchargements)',
+    'conn.cli_note': "Langue : fr, en, de, es, it, pt, ja, ko, zh, ru. Qualité : standard ou enhanced (ameliore). Voix : le nom d'une voix. Sans --out, le fichier est créé dans {downloads}. La commande affiche le chemin du fichier. Elle utilise le serveur s'il tourne déjà, sinon elle charge le modèle pour cette seule génération.",
+    'conn.ai': 'Instructions complètes pour une IA ou un skill', 'conn.ai_copy': 'Copier les instructions pour une IA', 'conn.ai_preview': 'Aperçu des instructions',
+    'conn.sample': 'Bonjour à tous', 'conn.sample_lang': 'fr',
+    'conn.doc': `## Voix de synthèse : VoiceClone (connecteur MCP)
+
+### Connexion
+Serveur MCP en HTTP, local : {url} (aucune authentification, écoute seulement sur 127.0.0.1).
+
+Déclaration dans le \`.mcp.json\` du projet :
+\`\`\`json
+{ "mcpServers": { "voiceclone": { "type": "http", "url": "{url}" } } }
+\`\`\`
+Ou : \`claude mcp add --transport http voiceclone {url}\`
+Outils : \`mcp__voiceclone__speak\`, \`mcp__voiceclone__list_profiles\`, \`mcp__voiceclone__list_generations\`.
+
+### Lancer la version serveur (sans fenêtre)
+1. Tester si le serveur répond : POST JSON-RPC \`{"jsonrpc":"2.0","id":1,"method":"tools/list"}\` sur {url}.
+2. Sinon le lancer en arrière-plan (PowerShell), puis attendre 2 s : \`Start-Process "{server}" -WindowStyle Hidden\`
+3. Ne pas le relancer s'il tourne déjà. Ne jamais lancer en même temps VoiceClone.exe (même port) ; si la fenêtre est ouverte, s'en servir telle quelle.
+4. La première génération charge le modèle (environ 10 s), ensuite environ 1 s par phrase.
+
+### Outil \`speak\` (bloquant)
+- \`text\` (obligatoire) : texte à dire, nombres en toutes lettres, une phrase par appel (80 à 130 caractères).
+- \`output_path\` : chemin ABSOLU en .wav (dossiers créés). Sans lui, le fichier reste dans le dossier de données de VoiceClone.
+- \`profile\` : nom de la voix (\`list_profiles\`), par exemple "{voice}". Défaut : la première voix.
+- \`language\` : french, english, german, spanish, italian, portuguese, japanese, korean, chinese, russian. Défaut : langue de la voix.
+- \`enhanced\` : true = version améliorée (égaliseur de voix + volume normalisé à -18 dBFS, crêtes sous -1 dBFS) ; false (défaut) = brute (filtre anti-souffle seulement).
+- \`seed\` : défaut 7 (résultat reproductible).
+
+Avec amélioration : \`{ "text": "{sample}", "profile": "{voice}", "language": "{lang}", "enhanced": true, "output_path": "C:\\\\projet\\\\voix\\\\01.wav" }\`
+Sans amélioration : même appel avec \`"enhanced": false\`.
+Résultat : JSON \`{"id":…,"path":"…","duration_sec":…,"profile":"…","seed":7,"enhanced":true,"elapsed_sec":…}\` ; fichier WAV 24 kHz mono 16 bits. En cas d'échec : \`isError: true\` et un message.
+
+### Ligne de commande (sans MCP)
+PowerShell : \`& "{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
+Invite de commandes : \`"{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
+Options : --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (fichier .wav ou dossier ; défaut : {downloads}), --seed.
+Affiche le chemin du fichier créé. Utilise le serveur s'il tourne déjà, sinon charge le modèle pour cette génération.
+
+### Autres outils
+\`list_profiles\` (id, name, language, samples), \`list_generations\` (limit ; path, duration_sec, enhanced, text).
+
+### Prérequis
+Modèle et codec téléchargés (VoiceClone, Paramètres, Modèles) ; la voix doit avoir au moins un échantillon et sa transcription.`,
+
     // Mises a jour
     'upd.title': 'Mises à jour', 'upd.installed': 'Version installée : {version}', 'upd.check': 'Vérifier maintenant',
     'upd.auto': 'Vérifier au démarrage (une requête à GitHub, aucune donnée envoyée)', 'upd.checking': 'Vérification…',
@@ -180,6 +235,60 @@ const I18N = {
     'theme.atelier': 'Atelier', 'theme.atelier_desc': 'Light, cream paper, serif headings',
     'theme.console': 'Console', 'theme.console_desc': 'Graphite and turquoise, audio studio style',
     'theme.conversation': 'Conversation', 'theme.conversation_desc': 'Light and rounded, generations as chat bubbles',
+
+    'conn.title': 'Connect an AI or a script',
+    'conn.hint': 'Copy these into your AI, skill or script. The paths are those of this VoiceClone installation: they follow wherever the program is located.',
+    'conn.no_server': 'The file voiceclone-server.exe was not found next to the application: the server version and the command line are not available in this installation. The MCP connector of the window still works.',
+    'conn.copy': 'Copy', 'conn.copied': 'Copied', 'conn.copy_aria': 'Copy: {title}', 'conn.copied_status': 'Copied to the clipboard.',
+    'conn.mcp_json': 'MCP declaration (the project .mcp.json)', 'conn.claude_cmd': 'Or with the Claude Code command',
+    'conn.start': 'Start the server version, without a window (PowerShell)',
+    'conn.start_note': 'Not needed if VoiceClone is already open: its window exposes the same connector. Do not start both at the same time (same port).',
+    'conn.cli_ps': 'Quick generation from the command line (PowerShell)', 'conn.cli_cmd': 'Quick generation from the command line (Command Prompt)',
+    'conn.cmt_std': 'standard quality', 'conn.cmt_enh': 'enhanced quality (equalizer + normalized volume)', 'conn.cmt_out': 'custom destination (without --out: the Downloads folder)',
+    'conn.cli_note': 'Language: fr, en, de, es, it, pt, ja, ko, zh, ru. Quality: standard or enhanced. Voice: the name of a voice. Without --out, the file is created in {downloads}. The command prints the path of the file. It uses the server if it is already running, otherwise it loads the model for this single generation.',
+    'conn.ai': 'Complete instructions for an AI or a skill', 'conn.ai_copy': 'Copy the instructions for an AI', 'conn.ai_preview': 'Instructions preview',
+    'conn.sample': 'Hello everyone', 'conn.sample_lang': 'en',
+    'conn.doc': `## Speech synthesis: VoiceClone (MCP connector)
+
+### Connection
+Local MCP server over HTTP: {url} (no authentication, listens on 127.0.0.1 only).
+
+Declaration in the project's \`.mcp.json\`:
+\`\`\`json
+{ "mcpServers": { "voiceclone": { "type": "http", "url": "{url}" } } }
+\`\`\`
+Or: \`claude mcp add --transport http voiceclone {url}\`
+Tools: \`mcp__voiceclone__speak\`, \`mcp__voiceclone__list_profiles\`, \`mcp__voiceclone__list_generations\`.
+
+### Start the server version (no window)
+1. Check whether the server answers: JSON-RPC POST \`{"jsonrpc":"2.0","id":1,"method":"tools/list"}\` to {url}.
+2. If not, start it in the background (PowerShell), then wait 2 s: \`Start-Process "{server}" -WindowStyle Hidden\`
+3. Do not start it again if it is already running. Never start VoiceClone.exe at the same time (same port); if the window is open, just use it.
+4. The first generation loads the model (about 10 s), then about 1 s per sentence.
+
+### \`speak\` tool (blocking)
+- \`text\` (required): text to say, numbers written out in words, one sentence per call (80 to 130 characters).
+- \`output_path\`: ABSOLUTE path ending in .wav (folders are created). Without it, the file stays in VoiceClone's data folder.
+- \`profile\`: name of the voice (\`list_profiles\`), for example "{voice}". Default: the first voice.
+- \`language\`: french, english, german, spanish, italian, portuguese, japanese, korean, chinese, russian. Default: the voice's language.
+- \`enhanced\`: true = enhanced version (voice equalizer + volume normalized to -18 dBFS, peaks below -1 dBFS); false (default) = raw (only a hiss filter).
+- \`seed\`: default 7 (reproducible result).
+
+Enhanced: \`{ "text": "{sample}", "profile": "{voice}", "language": "{lang}", "enhanced": true, "output_path": "C:\\\\project\\\\voice\\\\01.wav" }\`
+Not enhanced: same call with \`"enhanced": false\`.
+Result: JSON \`{"id":…,"path":"…","duration_sec":…,"profile":"…","seed":7,"enhanced":true,"elapsed_sec":…}\`; WAV file, 24 kHz mono 16-bit. On failure: \`isError: true\` and a message.
+
+### Command line (no MCP)
+PowerShell: \`& "{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
+Command Prompt: \`"{server}" speak "{sample}" --lang {lang} --quality enhanced --voice {voice}\`
+Options: --text, --lang (fr, en, de, es, it, pt, ja, ko, zh, ru), --quality (standard | enhanced), --voice, --out (.wav file or folder; default: {downloads}), --seed.
+Prints the path of the file created. Uses the server if it is already running, otherwise loads the model for this generation.
+
+### Other tools
+\`list_profiles\` (id, name, language, samples), \`list_generations\` (limit; path, duration_sec, enhanced, text).
+
+### Requirements
+Model and codec downloaded (VoiceClone, Settings, Models); the voice needs at least one sample and its transcript.`,
 
     'upd.title': 'Updates', 'upd.installed': 'Installed version: {version}', 'upd.check': 'Check now',
     'upd.auto': 'Check at startup (one request to GitHub, no data sent)', 'upd.checking': 'Checking…',

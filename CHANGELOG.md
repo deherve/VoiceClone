@@ -6,6 +6,18 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.2 - 2026-11-11
+
+**English**
+- **Quick command line**: `voiceclone-server.exe speak "text" --lang en --quality enhanced --voice Zen` generates an audio file and prints its path. Options: language (`fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru`), quality (`standard` or `enhanced`), voice, text (or standard input), destination (default: the Downloads folder; an existing file is never replaced unless you name it). It uses the running server when there is one, otherwise it loads the model for that single generation.
+- **Settings > Connect an AI or a script**: the MCP declaration, the Claude Code command, how to start the server version, the command-line examples (PowerShell and Command Prompt) and complete instructions for an AI or a skill, each with a Copy button. The paths are those of the installation, wherever it is.
+- **One archive only**: `voiceclone-server.exe` now ships in the same folder as `VoiceClone.exe` in `VoiceClone-<version>-windows-x64.zip`; the separate server-only archive is gone.
+
+**Français**
+- **Ligne de commande rapide** : `voiceclone-server.exe speak "texte" --lang fr --quality ameliore --voice Zen` génère un fichier audio et affiche son chemin. Options : langue (`fr`, `en`, `de`, `es`, `it`, `pt`, `ja`, `ko`, `zh`, `ru`), qualité (`standard` ou `enhanced`/`ameliore`), voix, texte (ou entrée standard), destination (défaut : le dossier Téléchargements ; un fichier existant n'est jamais remplacé sauf si vous le nommez). Elle utilise le serveur s'il tourne déjà, sinon charge le modèle pour cette seule génération.
+- **Paramètres > Connecter une IA ou un script** : la déclaration MCP, la commande de Claude Code, le lancement de la version serveur, les exemples de ligne de commande (PowerShell et Invite de commandes) et des instructions complètes pour une IA ou un skill, chacun avec un bouton Copier. Les chemins sont ceux de l'installation, où qu'elle soit.
+- **Une seule archive** : `voiceclone-server.exe` est maintenant dans le même dossier que `VoiceClone.exe` dans `VoiceClone-<version>-windows-x64.zip` ; l'archive « serveur seul » séparée n'existe plus.
+
 ## 0.1.1 - 2026-11-11
 
 **English**

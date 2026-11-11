@@ -1,9 +1,9 @@
-﻿# Publie une version : compile, assemble deux archives autonomes et cree la release GitHub.
+﻿# Publie une version : compile, assemble l'archive autonome et cree la release GitHub.
 #   .\scripts\release.ps1                  version = celle de crates\app\Cargo.toml ; notes = sa section de CHANGELOG.md
-#   .\scripts\release.ps1 -SansPublier     assemble et controle les archives, sans rien publier
-# Archives (aucune installation, runtimes Visual C++ inclus) :
-#   VoiceClone-<v>-windows-x64.zip          application avec fenetre + version serveur
-#   VoiceClone-Server-<v>-windows-x64.zip   version serveur seule (connecteur MCP, sans fenetre, sans WebView2)
+#   .\scripts\release.ps1 -SansPublier     assemble et controle l'archive, sans rien publier
+# Une seule archive (aucune installation, runtimes Visual C++ inclus) :
+#   VoiceClone-<v>-windows-x64.zip          VoiceClone.exe + voiceclone-server.exe dans le meme dossier : la page
+#                                           Parametres de l'application en tire les chemins reels (MCP, ligne de commande)
 # Prerequis : `gh` connecte, version commitee et poussee sur main, moteur compile (build-qwen.cmd).
 param([switch]$SansPublier)
 $ErrorActionPreference = 'Stop'
@@ -53,6 +53,8 @@ Local voice cloning and audio generation, driven from a window or from Claude Co
 - Needs Windows 10/11 64-bit and a graphics driver with Vulkan (AMD, NVIDIA, Intel); without one the processor is used, about 4 times slower.
 - Portable mode: create an empty file named "portable" next to the program; your data then stay in the "data" folder instead of %APPDATA%\VoiceClone.
 - MCP connector: http://127.0.0.1:17494/mcp  (tools: speak, list_profiles, list_generations)
+- Connect an AI or a script: Settings > "Connect an AI or a script" gives the MCP declaration, the command line and complete instructions to copy, with the real paths of this installation. voiceclone-server.exe (same folder) is the version without a window.
+- Quick command line: voiceclone-server.exe speak "text" --lang en --quality enhanced --voice Name   (default destination: Downloads)
 - Windows may warn about an unsigned program (SmartScreen): choose "More info" then "Run anyway".
 - Source code and updates: https://github.com/deherve/VoiceClone  -  Support: https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 
@@ -63,6 +65,8 @@ Clonage de voix et generation d'audio en local, depuis une fenetre ou depuis Cla
 - Necessite Windows 10/11 64 bits et un pilote graphique avec Vulkan (AMD, NVIDIA, Intel) ; sans lui, le processeur est utilise, environ 4 fois plus lent.
 - Mode portable : creez un fichier vide nomme "portable" a cote du programme ; vos donnees restent alors dans le dossier "data" au lieu de %APPDATA%\VoiceClone.
 - Connecteur MCP : http://127.0.0.1:17494/mcp  (outils : speak, list_profiles, list_generations)
+- Connecter une IA ou un script : Parametres > « Connecter une IA ou un script » donne la declaration MCP, la ligne de commande et des instructions completes a copier, avec les chemins reels de cette installation. voiceclone-server.exe (meme dossier) est la version sans fenetre.
+- Ligne de commande rapide : voiceclone-server.exe speak "texte" --lang fr --quality ameliore --voice Nom   (destination par defaut : Telechargements)
 - Windows peut avertir qu'un programme n'est pas signe (SmartScreen) : « Informations complementaires » puis « Executer quand meme ».
 - Code source et mises a jour : https://github.com/deherve/VoiceClone  -  Soutenir : https://www.paypal.com/donate/?hosted_button_id=CASVBK5K77DHC
 "@
@@ -86,7 +90,6 @@ function Assemble([string]$name, [string[]]$exes) {
     $zip
 }
 $app = Assemble "VoiceClone-$Version-windows-x64" @('VoiceClone.exe', 'voiceclone-server.exe') | Select-Object -Last 1
-$srv = Assemble "VoiceClone-Server-$Version-windows-x64" @('voiceclone-server.exe') | Select-Object -Last 1
 if ($SansPublier) { return }
 
-gh release create "v$Version" $app $srv --target main --title "VoiceClone $Version" --notes $notes
+gh release create "v$Version" $app --target main --title "VoiceClone $Version" --notes $notes

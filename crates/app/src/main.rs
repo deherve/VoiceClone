@@ -87,6 +87,20 @@ fn audio(app: Core<'_>, kind: String, id: i64) -> R<Response> {
     Ok(Response::new(std::fs::read(&path).map_err(|x| format!("{} : {x}", path.display()))?))
 }
 
+/// Ce qu'il faut pour connecter une IA ou un script : adresse du connecteur MCP et chemins reels des programmes
+/// (la version serveur est dans le dossier de l'application ; les chemins suivent l'endroit ou elle est installee).
+#[tauri::command]
+fn connection_info(app: Core<'_>) -> Value {
+    let exe = std::env::current_exe().ok();
+    let dir = exe.as_ref().and_then(|e| e.parent()).map(std::path::Path::to_path_buf);
+    let server = dir.as_ref().map(|d| d.join("voiceclone-server.exe")).filter(|p| p.is_file());
+    let text = |p: Option<std::path::PathBuf>| p.map(|p| p.display().to_string());
+    json!({
+        "app": text(exe), "server": text(server), "port": mcp::port(), "url": format!("http://127.0.0.1:{}/mcp", mcp::port()),
+        "downloads": text(voiceclone::cli::downloads_dir().ok()), "data": app.data_dir().display().to_string(),
+    })
+}
+
 // ---------------------------------------------------------------- langue, version, mises a jour, composants
 /// Langue enregistree (None au premier lancement : l'interface propose celle du systeme).
 #[tauri::command]
@@ -286,7 +300,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
-            get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
+            connection_info, get_lang, set_lang, app_version, check_update, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

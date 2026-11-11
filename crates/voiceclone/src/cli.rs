@@ -25,7 +25,7 @@ Usage : voiceclone-server speak \"texte\" [options]
   -l, --lang <langue>     fr, en, de, es, it, pt, ja, ko, zh, ru (ou french, english...) ; défaut : langue de la voix
   -q, --quality <niveau>  standard (défaut) ou ameliore / enhanced : égaliseur de voix + volume normalisé
   -v, --voice <nom>       voix à utiliser (voir list_profiles) ; défaut : la première voix
-  -o, --out <chemin>      fichier .wav, ou dossier ; défaut : le dossier Téléchargements
+  -o, --out <chemin>      fichier .wav, ou dossier (sans \\ final) ; défaut : le dossier Téléchargements
       --seed <n>          graine d'échantillonnage (défaut 7 : résultat reproductible)
   -h, --help              cette aide
 
@@ -43,7 +43,7 @@ Usage: voiceclone-server speak \"text\" [options]
   -l, --lang <language>   fr, en, de, es, it, pt, ja, ko, zh, ru (or french, english...); default: the voice's language
   -q, --quality <level>   standard (default) or enhanced: voice equalizer + normalized volume
   -v, --voice <name>      voice to use (see list_profiles); default: the first voice
-  -o, --out <path>        .wav file, or folder; default: the Downloads folder
+  -o, --out <path>        .wav file, or folder (without a final \\); default: the Downloads folder
       --seed <n>          sampling seed (default 7: reproducible result)
   -h, --help              this help
 
@@ -149,8 +149,11 @@ fn free_path(dir: &Path, stem: &str) -> PathBuf {
 pub fn output_path(out: Option<&str>, downloads: &Path, cwd: &Path, text: &str, enhanced: bool) -> R<PathBuf> {
     let stem = file_stem(text, enhanced);
     let Some(out) = out else { return Ok(free_path(downloads, &stem)) };
+    // Piege de Windows : "C:\mon dossier\" est lu comme un guillemet echappe, l'argument arrive avec un « " » en fin.
+    // Ce guillemet ne peut venir que de la, et l'antislash final disait qu'il s'agissait d'un dossier.
+    let (out, quoted_dir) = (out.trim_end_matches('"'), out.ends_with('"'));
     let p = if Path::new(out).is_absolute() { PathBuf::from(out) } else { cwd.join(out) };
-    let is_dir = p.is_dir() || out.ends_with(['\\', '/']);
+    let is_dir = quoted_dir || p.is_dir() || out.ends_with(['\\', '/']);
     if is_dir {
         std::fs::create_dir_all(&p).map_err(|x| format!("{} : {x}", p.display()))?;
         return Ok(free_path(&p, &stem));
@@ -220,6 +223,9 @@ mod tests {
         let made = output_path(Some(&format!("{}\\", sub.display())), &dir, cwd, "Salut", false).unwrap();
         assert_eq!(made, sub.join("Salut.wav"));
         assert!(sub.is_dir());
+        // « "dossier\" » : l'antislash final echappe le guillemet de fermeture, l'argument se termine par un « " ».
+        let trap = format!("{}\"", sub.join("avec espace").display());
+        assert_eq!(output_path(Some(&trap), &dir, cwd, "Salut", false).unwrap(), sub.join("avec espace").join("Salut.wav"));
         // Fichier explicite : tel quel, relatif resolu depuis le dossier courant ; autre extension refusee.
         assert_eq!(output_path(Some("voix\\01.wav"), &dir, cwd, "x", false).unwrap(), cwd.join("voix\\01.wav"));
         assert_eq!(output_path(Some(first.to_str().unwrap()), &dir, cwd, "x", false).unwrap(), first, "fichier explicite : ecrase, c'est voulu");

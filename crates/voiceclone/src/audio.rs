@@ -137,6 +137,25 @@ pub fn split_text(text: &str, max: usize) -> Vec<String> {
     chunks.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
 }
 
+/// Coupe un texte en deux moities : aux fins de phrase si possible, sinon a l'espace le plus proche du milieu.
+/// Un seul morceau en retour = indivisible (trop court ou sans espace).
+pub fn halve(text: &str) -> Vec<String> {
+    let n = text.chars().count();
+    if n < 40 {
+        return vec![text.to_string()];
+    }
+    let by_sentence = split_text(text, n / 2 + 1);
+    if by_sentence.len() > 1 {
+        return by_sentence;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let cut = (0..n).filter(|&i| chars[i] == ' ').min_by_key(|&i| i.abs_diff(n / 2));
+    match cut {
+        Some(i) => vec![chars[..i].iter().collect::<String>().trim().to_string(), chars[i..].iter().collect::<String>().trim().to_string()],
+        None => vec![text.to_string()],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +233,16 @@ mod tests {
         assert_eq!(split_text("Un. Deux ! Trois…\nQuatre", 8), ["Un.", "Deux !", "Trois…", "Quatre"]);
         assert_eq!(split_text("Version 3.5 sortie. Fin.", 12), ["Version 3.5 sortie.", "Fin."]);
         assert!(split_text(" \n ", 10).is_empty());
+    }
+
+    #[test]
+    fn halving_long_text() {
+        assert_eq!(halve("court"), ["court"]);
+        let two = halve("Première phrase assez longue pour couper. Seconde phrase tout aussi longue que la première.");
+        assert_eq!(two.len(), 2);
+        let one_sentence = halve("un deux trois quatre cinq six sept huit neuf dix onze douze treize quatorze quinze");
+        assert_eq!(one_sentence.len(), 2);
+        assert_eq!(one_sentence.join(" "), "un deux trois quatre cinq six sept huit neuf dix onze douze treize quatorze quinze");
+        assert_eq!(halve(&"a".repeat(100)).len(), 1);
     }
 }

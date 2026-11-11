@@ -11,7 +11,7 @@ fn tools() -> Value {
         {"name": "speak",
          "description": "Génère un fichier WAV (24 kHz mono) du texte avec une voix clonée. Bloquant : retourne le chemin du fichier, sa durée et le temps de calcul. Environ 1 s par phrase une fois le modèle chargé.",
          "inputSchema": {"type": "object", "required": ["text"], "properties": {
-            "text": {"type": "string", "description": "Texte à dire. Les textes longs sont découpés par phrases."},
+            "text": {"type": "string", "description": "Texte à dire. Les textes longs sont découpés par phrases (morceaux de 30 s au plus, fusionnés ensuite). Balises : [pause] (1 s) ou [pause 2.5s] ; [NomDeVoix] change de voix pour la suite (dialogues, voir list_profiles). Le modèle ne comprend aucune balise d'émotion."},
             "profile": {"type": "string", "description": "Nom du profil de voix (voir list_profiles). Par défaut : le premier profil."},
             "output_path": {"type": "string", "description": "Chemin absolu .wav où copier le résultat (ex. dossier public d'un projet Remotion). Sans lui, le fichier est dans le dossier Audios du programme (le chemin est renvoyé)."},
             "language": {"type": "string", "description": "Nom de langue Qwen3-TTS (french, english...). Par défaut : celle du profil."},

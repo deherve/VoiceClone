@@ -6,6 +6,20 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.4 - 2026-11-11
+
+**English**
+- **Tags in the text**: buttons above the text box insert at the cursor `[pause]` (1 second; `[pause 2.5s]` sets the length) and one `[VoiceName]` tag per voice. The text after a voice tag is spoken with that voice and everything is merged in order: dialogues with several voices in a single long text. Unknown tags are an error (never read aloud by surprise).
+- **Long texts**: generated in pieces of 30 seconds at most (a piece that comes out longer is cut in two and regenerated), then merged into one file.
+- The cloning model understands no emotion tag, so none is offered: for another tone, record a voice in that tone and use its tag.
+- Works the same through the MCP `speak` tool and the command line.
+
+**Français**
+- **Balises dans le texte** : des boutons au-dessus de la zone de texte insèrent au curseur `[pause]` (1 seconde ; `[pause 2.5s]` règle la durée) et une balise `[NomDeVoix]` par voix. Le texte qui suit une balise de voix est dit avec cette voix et tout est fusionné dans l'ordre : dialogues à plusieurs voix dans un seul long texte. Une balise inconnue est une erreur (jamais lue à voix haute par surprise).
+- **Longs textes** : générés en morceaux de 30 secondes au plus (un morceau plus long est coupé en deux et régénéré), puis fusionnés en un seul fichier.
+- Le modèle de clonage ne comprend aucune balise d'émotion, donc aucune n'est proposée : pour un autre ton, enregistrez une voix sur ce ton et utilisez sa balise.
+- Fonctionne aussi avec l'outil MCP `speak` et la ligne de commande.
+
 ## 0.1.3 - 2026-11-11
 
 **English**

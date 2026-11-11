@@ -236,3 +236,11 @@ progress { width: 160px; accent-color: var(--accent); }
 [data-theme="conversation"] .profile { border-radius: 14px; }
 [data-theme="conversation"] .bars i { opacity: .75; }
 
+
+/* Balises d'insertion au-dessus du texte */
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.tag { font-family: var(--font-label); font-size: 12.5px; padding: 4px 11px; min-height: 28px; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--muted); }
+.tag:hover { color: var(--text); border-color: var(--accent); }
+.tag.pause::before { content: "[ ] "; opacity: .6; }
+.tag.voice::before { content: "["; opacity: .6; }
+.tag.voice::after { content: "]"; opacity: .6; }

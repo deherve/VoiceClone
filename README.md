@@ -26,6 +26,7 @@
 
 - **Voices from samples**: record with the microphone or import an audio file, with no length limit, and give its exact transcript for a faithful clone.
 - **Text to speech** in a three-zone window: voices and samples, text to say, list of generations (waveform, play, copy the text).
+- **Tags and dialogues**: buttons above the text insert `[pause]` (1 s, or `[pause 2.5s]`) and one `[VoiceName]` tag per voice at the cursor; the text after a voice tag is spoken with that voice, so a long multi-voice dialogue is one generation. Long texts are generated in pieces of 30 s at most and merged. The cloning model understands no emotion tags: to change the tone, add a voice recorded in that tone (e.g. "Zen cheerful") and use its tag.
 - **Enhancement**: voice equalizer and normalized volume, switchable per generation (the original is always kept). WAV and MP3 export with a "Save as" dialog.
 - **Claude Code (MCP)**: tools `speak` (with `enhanced`), `list_profiles`, `list_generations`; also available as a headless server with no window.
 - **Graphics cards**: automatic detection, best choice proposed in Settings, automatic fallback to the processor. **Components** are checked in Settings and the missing ones can be installed from their official sources.
@@ -125,6 +126,7 @@ Support the project: [Donate with PayPal](https://www.paypal.com/donate/?hosted_
 
 - **Voix à partir d'échantillons** : enregistrement au micro ou import d'un fichier audio, sans limite de durée, avec sa transcription exacte pour un clonage fidèle.
 - **Synthèse vocale** dans une fenêtre à trois zones : voix et échantillons, texte à dire, liste des générations (forme d'onde, lecture, copie du texte).
+- **Balises et dialogues** : des boutons au-dessus du texte insèrent au curseur `[pause]` (1 s, ou `[pause 2.5s]`) et une balise `[NomDeVoix]` par voix ; le texte qui suit une balise de voix est dit avec cette voix, un long dialogue à plusieurs voix est donc une seule génération. Les longs textes sont générés en morceaux de 30 s au plus puis fusionnés. Le modèle de clonage ne comprend aucune balise d'émotion : pour changer de ton, ajoutez une voix enregistrée sur ce ton (par ex. « Zen enjoué ») et utilisez sa balise.
 - **Amélioration** : égaliseur de voix et volume normalisé, activable par génération (l'original est toujours conservé). Export WAV et MP3 avec boîte « Enregistrer sous ».
 - **Claude Code (MCP)** : outils `speak` (avec `enhanced`), `list_profiles`, `list_generations` ; disponible aussi en version serveur sans fenêtre.
 - **Cartes graphiques** : détection automatique, meilleur choix proposé dans Paramètres, repli automatique sur le processeur. Les **composants** sont contrôlés dans Paramètres et ceux qui manquent s'installent depuis leurs sources officielles.

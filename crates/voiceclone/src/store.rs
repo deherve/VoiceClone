@@ -6,6 +6,7 @@ use std::path::Path;
 
 pub struct Store(Connection);
 
+#[derive(Clone)]
 pub struct ProfileRef {
     pub id: i64,
     pub name: String,

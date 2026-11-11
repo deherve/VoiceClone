@@ -98,6 +98,7 @@ async function loadProfiles() {
     };
     return el('li', {}, pick, del);
   }));
+  renderTags();
   if (!profiles.length) $('new-profile-box').open = true;
   if (!profiles.length) $('profile-list').append(el('li', { className: 'empty', textContent: t('voices.empty') }));
   await loadSamples();
@@ -222,6 +223,20 @@ $('file').onchange = async (ev) => {
   try { await addSample(await file.arrayBuffer(), current, ''); }
   catch (e) { fail($('sample-status'), t('sample.file_error', { msg: e?.message ?? e })); }
 };
+
+// ---------------------------------------------------------------- balises : insertion au curseur
+function insertTag(tag) {
+  const tx = $('text'), a = tx.selectionStart ?? tx.value.length, b = tx.selectionEnd ?? a;
+  const before = tx.value.slice(0, a), pad = before && !/\s$/.test(before) ? ' ' : '';
+  tx.setRangeText(`${pad}${tag} `, a, b, 'end');
+  tx.focus();
+  tx.dispatchEvent(new Event('input'));
+}
+function renderTags() {
+  $('tags').replaceChildren(
+    el('button', { type: 'button', className: 'tag pause', textContent: t('tags.pause'), title: t('tags.pause_tip'), onclick: () => insertTag('[pause]') }),
+    ...profiles.map((p) => el('button', { type: 'button', className: 'tag voice', textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) })));
+}
 
 // ---------------------------------------------------------------- generation
 function updateGo() {

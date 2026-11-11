@@ -39,6 +39,7 @@ const I18N = {
 
     // Saisie
     'compose.title': 'Texte à dire', 'compose.placeholder': 'Saisissez le texte à générer avec la voix sélectionnée.',
+    'tags.aria': 'Balises à insérer dans le texte', 'tags.pause': 'Pause 1 s', 'tags.pause_tip': "Insère [pause] au curseur : 1 seconde de silence. [pause 2.5s] règle la durée.", 'tags.voice_tip': "Insère [{name}] au curseur : la suite du texte est dite avec cette voix (dialogues).",
     'compose.clear': 'Effacer le texte', 'compose.hint': 'Ctrl + Entrée pour lancer', 'compose.go': 'Générer',
     'compose.line_one': 'Voix : {name} · {n} caractère', 'compose.line_other': 'Voix : {name} · {n} caractères',
     'compose.no_voice': 'Aucune voix sélectionnée',
@@ -99,7 +100,7 @@ Outils : \`mcp__voiceclone__speak\`, \`mcp__voiceclone__list_profiles\`, \`mcp__
 4. La première génération charge le modèle (environ 10 s), ensuite environ 1 s par phrase.
 
 ### Outil \`speak\` (bloquant)
-- \`text\` (obligatoire) : texte à dire, nombres en toutes lettres, une phrase par appel (80 à 130 caractères).
+- \`text\` (obligatoire) : texte à dire, nombres en toutes lettres. Les longs textes sont découpés en morceaux de 30 s au plus puis fusionnés. Balises : \`[pause]\` (1 s) ou \`[pause 2.5s]\` ; \`[{voice}]\` (nom d'une voix) change de voix pour la suite du texte, pour les dialogues. Aucune balise d'émotion : le modèle ne les comprend pas.
 - \`output_path\` : chemin ABSOLU en .wav (dossiers créés). Sans lui, le fichier est dans le dossier Audios du programme (le chemin est renvoyé).
 - \`profile\` : nom de la voix (\`list_profiles\`), par exemple "{voice}". Défaut : la première voix.
 - \`language\` : french, english, german, spanish, italian, portuguese, japanese, korean, chinese, russian. Défaut : langue de la voix.
@@ -211,6 +212,7 @@ Modèle et codec téléchargés (VoiceClone, Paramètres, Modèles) ; la voix do
     'readme.english': "Hello, and welcome. Today I am taking a moment to record my voice, calmly, without rushing. Does the tone sound natural? I think so. I speak the way I usually do, with short sentences, then a few longer ones, to give it some rhythm. There, that's it: thank you for listening!",
 
     'compose.title': 'Text to say', 'compose.placeholder': 'Type the text to generate with the selected voice.',
+    'tags.aria': 'Tags to insert in the text', 'tags.pause': 'Pause 1 sec', 'tags.pause_tip': 'Inserts [pause] at the cursor: 1 second of silence. [pause 2.5s] sets the length.', 'tags.voice_tip': 'Inserts [{name}] at the cursor: the rest of the text is spoken with this voice (dialogues).',
     'compose.clear': 'Clear the text', 'compose.hint': 'Ctrl + Enter to generate', 'compose.go': 'Generate',
     'compose.line_one': 'Voice: {name} · {n} character', 'compose.line_other': 'Voice: {name} · {n} characters',
     'compose.no_voice': 'No voice selected',
@@ -268,8 +270,8 @@ Tools: \`mcp__voiceclone__speak\`, \`mcp__voiceclone__list_profiles\`, \`mcp__vo
 4. The first generation loads the model (about 10 s), then about 1 s per sentence.
 
 ### \`speak\` tool (blocking)
-- \`text\` (required): text to say, numbers written out in words, one sentence per call (80 to 130 characters).
-- \`output_path\`: ABSOLUTE path ending in .wav (folders are created). Without it, the file stays in VoiceClone's data folder.
+- \`text\` (required): text to say, numbers written out in words. Long texts are cut into pieces of 30 s at most, then merged. Tags: \`[pause]\` (1 s) or \`[pause 2.5s]\`; \`[{voice}]\` (the name of a voice) switches voice for the rest of the text, for dialogues. No emotion tags: the model does not understand them.
+- \`output_path\`: ABSOLUTE path ending in .wav (folders are created). Without it, the file is in the program's Audios folder (its path is returned).
 - \`profile\`: name of the voice (\`list_profiles\`), for example "{voice}". Default: the first voice.
 - \`language\`: french, english, german, spanish, italian, portuguese, japanese, korean, chinese, russian. Default: the voice's language.
 - \`enhanced\`: true = enhanced version (voice equalizer + volume normalized to -18 dBFS, peaks below -1 dBFS); false (default) = raw (only a hiss filter).

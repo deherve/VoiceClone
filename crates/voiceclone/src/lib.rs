@@ -7,6 +7,7 @@ pub mod components;
 pub mod engine;
 pub mod mcp;
 pub mod models;
+pub mod script;
 mod store;
 pub mod update;
 pub mod voices;
@@ -14,6 +15,7 @@ pub mod voices;
 use engine::{Engine, Voice};
 use serde_json::{json, Value};
 use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Instant, SystemTime, UNIX_EPOCH}};
+use script::Item;
 use store::Store;
 
 pub type R<T> = Result<T, String>;
@@ -22,7 +24,28 @@ pub(crate) fn e<E: ToString>(x: E) -> String {
 }
 
 const MAX_CHUNK_CHARS: usize = 300;
+/// Duree maximale d'un morceau synthetise : au-dela, il est recoupe en deux et regenere (meilleure qualite).
+const MAX_CHUNK_SEC: usize = 30;
 const DEFAULT_SEED: i64 = 7; // meme graine que les generations Voicebox existantes : resultat reproductible
+
+/// Synthetise `text` ; si le resultat depasse `MAX_CHUNK_SEC`, le coupe en deux et regenere chaque moitie.
+fn synth_capped(engine: &Engine, text: &str, lang: &str, voice: &Voice, seed: i64, out: &mut Vec<f32>) -> R<()> {
+    let pcm = engine.synth(text, lang, voice, seed)?;
+    if pcm.len() > MAX_CHUNK_SEC * audio::SR as usize {
+        let parts = audio::halve(text);
+        if parts.len() > 1 {
+            for (i, part) in parts.iter().enumerate() {
+                if i > 0 {
+                    out.resize(out.len() + audio::SR as usize * 15 / 100, 0.0);
+                }
+                synth_capped(engine, part, lang, voice, seed, out)?;
+            }
+            return Ok(());
+        }
+    }
+    out.extend(pcm);
+    Ok(())
+}
 
 /// Dossier de donnees : `VOICECLONE_DATA`, sinon `data\` a cote de l'executable si un fichier `portable` s'y trouve
 /// (version autonome : tout reste dans le dossier, rien dans le profil Windows), sinon `%APPDATA%\VoiceClone`.
@@ -501,8 +524,8 @@ impl App {
     /// Genere `text` avec la voix du profil. Le modele est charge au premier appel puis reste en memoire.
     /// `enhanced` : egaliseur + normalisation (comme le bouton « Amelioration ») ; `output` recoit alors cette version.
     pub fn speak(&self, text: &str, profile: Option<&str>, lang: Option<&str>, seed: Option<i64>, output: Option<&Path>, enhanced: bool) -> R<Value> {
-        let chunks = audio::split_text(text, MAX_CHUNK_CHARS);
-        if chunks.is_empty() {
+        let items = script::parse(text)?;
+        if !items.iter().any(|i| matches!(i, Item::Text(_))) {
             return Err(tr!("texte vide", "empty text"));
         }
         if let Some(o) = output {
@@ -511,17 +534,45 @@ impl App {
                 return Err(tr!("output_path doit être un chemin absolu en .wav", "output_path must be an absolute path ending in .wav"));
             }
         }
-        let (p, samples) = {
-            let store = self.store.lock().unwrap();
-            let p = store.find_profile(profile)?;
-            let samples = store.samples(p.id)?;
-            (p, samples)
-        };
-        if samples.is_empty() {
-            return Err(tr!("la voix « {} » n'a aucun échantillon", "voice \"{}\" has no sample", p.name));
+        // Distribution : la voix principale, puis chaque voix appelee par une balise [Nom] (sans tenir compte de la casse).
+        enum Step {
+            Silence(usize),
+            Say(usize, String),
         }
-        let signature: String = samples.iter().map(|s| format!("{}:{}|", s.id, s.ref_text)).collect();
-        let (lang, seed) = (lang.unwrap_or(&p.language), seed.unwrap_or(DEFAULT_SEED));
+        type Cast = Vec<(store::ProfileRef, Vec<store::Sample>)>;
+        let (cast, steps) = {
+            let store = self.store.lock().unwrap();
+            let main = store.find_profile(profile)?;
+            let names: Vec<String> = store.list_profiles()?.as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect();
+            let join = |cast: &mut Cast, p: store::ProfileRef| -> R<usize> {
+                if let Some(i) = cast.iter().position(|(c, _)| c.id == p.id) {
+                    return Ok(i);
+                }
+                let samples = store.samples(p.id)?;
+                if samples.is_empty() {
+                    return Err(tr!("la voix « {} » n'a aucun échantillon", "voice \"{}\" has no sample", p.name));
+                }
+                cast.push((p, samples));
+                Ok(cast.len() - 1)
+            };
+            let (mut cast, mut steps): (Cast, Vec<Step>) = (vec![], vec![]);
+            let mut current = join(&mut cast, main)?;
+            for item in items {
+                match item {
+                    Item::Pause(s) => steps.push(Step::Silence((s * audio::SR as f32) as usize)),
+                    Item::Voice(n) => {
+                        let real = names.iter().find(|x| x.to_lowercase() == n.to_lowercase()).ok_or_else(|| {
+                            tr!("voix inconnue : [{}] (voix disponibles : {})", "unknown voice: [{}] (available voices: {})", n, names.join(", "))
+                        })?;
+                        current = join(&mut cast, store.find_profile(Some(real))?)?;
+                    }
+                    Item::Text(t) => steps.extend(audio::split_text(&t, MAX_CHUNK_CHARS).into_iter().map(|c| Step::Say(current, c))),
+                }
+            }
+            (cast, steps)
+        };
+        let p = cast[0].0.clone();
+        let (lang, seed) = (lang.map(String::from), seed.unwrap_or(DEFAULT_SEED));
         let t0 = Instant::now();
 
         let mut pcm = Vec::new();
@@ -540,30 +591,44 @@ impl App {
                 *note = why;
             }
             let engine = &engine.as_ref().unwrap().1;
-            if voices.get(&p.id).map_or(true, |(sig, _)| *sig != signature) {
-                // Tous les echantillons du profil servent, bout a bout, avec 300 ms de silence entre eux.
-                let mut reference = Vec::new();
-                for s in &samples {
-                    reference.extend(audio::read_wav_24k(Path::new(&s.audio))?);
-                    reference.resize(reference.len() + audio::SR as usize * 3 / 10, 0.0);
+            for (vp, samples) in &cast {
+                let signature: String = samples.iter().map(|s| format!("{}:{}|", s.id, s.ref_text)).collect();
+                if voices.get(&vp.id).map_or(true, |(sig, _)| *sig != signature) {
+                    // Tous les echantillons du profil servent, bout a bout, avec 300 ms de silence entre eux.
+                    let mut reference = Vec::new();
+                    for s in samples {
+                        reference.extend(audio::read_wav_24k(Path::new(&s.audio))?);
+                        reference.resize(reference.len() + audio::SR as usize * 3 / 10, 0.0);
+                    }
+                    // Le clonage fidele exige la transcription de tout l'audio ; s'il en manque une,
+                    // on retombe sur le timbre seul (moins fidele).
+                    let complete = samples.iter().all(|s| !s.ref_text.trim().is_empty());
+                    let ref_text = complete.then(|| samples.iter().map(|s| s.ref_text.trim()).collect::<Vec<_>>().join(" "));
+                    voices.insert(vp.id, (signature, engine.voice(&reference, ref_text.as_deref())?));
                 }
-                // Le clonage fidele exige la transcription de tout l'audio ; s'il en manque une,
-                // on retombe sur le timbre seul (moins fidele).
-                let complete = samples.iter().all(|s| !s.ref_text.trim().is_empty());
-                let ref_text = complete.then(|| samples.iter().map(|s| s.ref_text.trim()).collect::<Vec<_>>().join(" "));
-                voices.insert(p.id, (signature, engine.voice(&reference, ref_text.as_deref())?));
             }
-            for (i, chunk) in chunks.iter().enumerate() {
-                if i > 0 {
-                    pcm.resize(pcm.len() + audio::SR as usize * 15 / 100, 0.0); // 150 ms de silence entre morceaux
+            let mut spoken = false; // le dernier pas a-t-il produit de la voix ? (silence de 150 ms entre deux morceaux parles)
+            for step in &steps {
+                match step {
+                    Step::Silence(n) => {
+                        pcm.resize(pcm.len() + n, 0.0);
+                        spoken = false;
+                    }
+                    Step::Say(i, chunk) => {
+                        if spoken {
+                            pcm.resize(pcm.len() + audio::SR as usize * 15 / 100, 0.0);
+                        }
+                        let (vp, _) = &cast[*i];
+                        synth_capped(engine, chunk, lang.as_deref().unwrap_or(&vp.language), &voices[&vp.id].1, seed, &mut pcm)?;
+                        spoken = true;
+                    }
                 }
-                pcm.extend(engine.synth(chunk, lang, &voices[&p.id].1, seed)?);
             }
         }
         audio::clean(&mut pcm);
 
         // Nom lisible tire du texte (« Bonjour-je-suis-Zen.wav », puis -2, -3...) dans le dossier Audios du programme.
-        let stored = cli::free_path(&self.audios_dir(), &cli::file_stem(text, false));
+        let stored = cli::free_path(&self.audios_dir(), &cli::file_stem(&script::strip(text), false));
         audio::write_wav(&stored, &pcm)?;
         let duration = pcm.len() as f64 / audio::SR as f64;
         let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed)?;

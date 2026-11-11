@@ -40,6 +40,7 @@ const I18N = {
     // Saisie
     'compose.title': 'Texte à dire', 'compose.placeholder': 'Saisissez le texte à générer avec la voix sélectionnée.',
     'tags.aria': 'Balises à insérer dans le texte', 'tags.pause': 'Pause 1 s', 'tags.pause_tip': "Insère [pause] au curseur : 1 seconde de silence. [pause 2.5s] règle la durée.", 'tags.voice_tip': "Insère [{name}] au curseur : la suite du texte est dite avec cette voix (dialogues).",
+    'gen.new': 'Nouveau',
     'compose.clear': 'Effacer le texte', 'compose.hint': 'Ctrl + Entrée pour lancer', 'compose.go': 'Générer',
     'compose.line_one': 'Voix : {name} · {n} caractère', 'compose.line_other': 'Voix : {name} · {n} caractères',
     'compose.no_voice': 'Aucune voix sélectionnée',
@@ -213,6 +214,7 @@ Modèle et codec téléchargés (VoiceClone, Paramètres, Modèles) ; la voix do
 
     'compose.title': 'Text to say', 'compose.placeholder': 'Type the text to generate with the selected voice.',
     'tags.aria': 'Tags to insert in the text', 'tags.pause': 'Pause 1 sec', 'tags.pause_tip': 'Inserts [pause] at the cursor: 1 second of silence. [pause 2.5s] sets the length.', 'tags.voice_tip': 'Inserts [{name}] at the cursor: the rest of the text is spoken with this voice (dialogues).',
+    'gen.new': 'New',
     'compose.clear': 'Clear the text', 'compose.hint': 'Ctrl + Enter to generate', 'compose.go': 'Generate',
     'compose.line_one': 'Voice: {name} · {n} character', 'compose.line_other': 'Voice: {name} · {n} characters',
     'compose.no_voice': 'No voice selected',

@@ -69,6 +69,10 @@ function playButton(kind, id, where) {
         p.src = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
         playingKey = b.dataset.key;
         await p.play();
+        if (kind === 'generation') {
+          b.closest('.gen')?.classList.remove('unheard');
+          invoke('mark_heard', { id }).catch(() => {});
+        }
       } catch (e) { playingKey = null; fail(where, e); }
     }
     markPlaying();
@@ -379,11 +383,12 @@ async function loadGenerations() {
     bars.dataset.key = `generation:${g.id}`;
     bars.setAttribute('aria-hidden', 'true');
     drawBars(bars, g.id, g.enhanced);
-    return el('li', { className: 'gen' },
+    return el('li', { className: g.heard ? 'gen' : 'gen unheard' },
       el('div', { className: 'gen-top' }, el('p', { className: 'gen-text', textContent: g.text, title: g.text }), copy),
       el('div', { className: 'audio' },
         el('div', { className: 'player' }, playButton('generation', g.id, st), bars, el('span', { className: 'dur', textContent: fmt(g.duration_sec) })),
         el('div', { className: 'meta' },
+          el('span', { className: 'new-badge', textContent: t('gen.new') }),
           el('span', { className: 'voice', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));

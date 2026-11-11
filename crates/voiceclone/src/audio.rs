@@ -137,6 +137,19 @@ pub fn split_text(text: &str, max: usize) -> Vec<String> {
     chunks.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
 }
 
+/// Retire le silence au debut et a la fin d'un morceau (il en garde `keep_ms` de chaque cote) : les pauses demandees
+/// par `[pause]` sont alors exactes, sans s'ajouter au silence de fin que le modele laisse apres chaque phrase.
+pub fn trim_silence(pcm: &mut Vec<f32>, keep_ms: usize) {
+    let hop = SR as usize / 100; // fenetres de 10 ms
+    let loud = |w: &[f32]| (w.iter().map(|x| x * x).sum::<f32>() / w.len() as f32).sqrt() > 0.01;
+    let Some(first) = pcm.chunks(hop).position(|w| loud(w)) else { return };
+    let last = pcm.chunks(hop).rposition(|w| loud(w)).unwrap_or(first);
+    let keep = SR as usize * keep_ms / 1000;
+    let (start, end) = ((first * hop).saturating_sub(keep), ((last + 1) * hop + keep).min(pcm.len()));
+    pcm.truncate(end);
+    pcm.drain(..start);
+}
+
 /// Coupe un texte en deux moities : aux fins de phrase si possible, sinon a l'espace le plus proche du milieu.
 /// Un seul morceau en retour = indivisible (trop court ou sans espace).
 pub fn halve(text: &str) -> Vec<String> {
@@ -233,6 +246,19 @@ mod tests {
         assert_eq!(split_text("Un. Deux ! Trois…\nQuatre", 8), ["Un.", "Deux !", "Trois…", "Quatre"]);
         assert_eq!(split_text("Version 3.5 sortie. Fin.", 12), ["Version 3.5 sortie.", "Fin."]);
         assert!(split_text(" \n ", 10).is_empty());
+    }
+
+    #[test]
+    fn silence_is_trimmed_at_both_ends() {
+        let sr = SR as usize;
+        let mut pcm = vec![0.0; sr]; // 1 s de silence
+        pcm.extend((0..sr).map(|i| 0.3 * (i as f32 * 0.1).sin())); // 1 s de son
+        pcm.extend(vec![0.0; sr * 2]); // 2 s de silence
+        trim_silence(&mut pcm, 50);
+        assert!((pcm.len() as i64 - (sr as i64 + sr as i64 / 10)).abs() < sr as i64 / 50, "{}", pcm.len()); // 1 s + 2 x 50 ms
+        let mut silent = vec![0.0; sr];
+        trim_silence(&mut silent, 50);
+        assert_eq!(silent.len(), sr, "un morceau muet reste tel quel");
     }
 
     #[test]

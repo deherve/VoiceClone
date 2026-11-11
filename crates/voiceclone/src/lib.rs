@@ -36,13 +36,15 @@ fn synth_capped(engine: &Engine, text: &str, lang: &str, voice: &Voice, seed: i6
         if parts.len() > 1 {
             for (i, part) in parts.iter().enumerate() {
                 if i > 0 {
-                    out.resize(out.len() + audio::SR as usize * 15 / 100, 0.0);
+                    out.resize(out.len() + audio::SR as usize * 3 / 10, 0.0);
                 }
                 synth_capped(engine, part, lang, voice, seed, out)?;
             }
             return Ok(());
         }
     }
+    let mut pcm = pcm;
+    audio::trim_silence(&mut pcm, 50);
     out.extend(pcm);
     Ok(())
 }
@@ -424,6 +426,11 @@ impl App {
         ))
     }
 
+    /// La generation a ete ecoutee : elle n'est plus mise en evidence.
+    pub fn mark_heard(&self, id: i64) -> R<()> {
+        self.store.lock().unwrap().set_heard(id)
+    }
+
     pub fn delete_generation(&self, id: i64) -> R<()> {
         let store = self.store.lock().unwrap();
         let g = store.generation(id)?;
@@ -607,7 +614,7 @@ impl App {
                     voices.insert(vp.id, (signature, engine.voice(&reference, ref_text.as_deref())?));
                 }
             }
-            let mut spoken = false; // le dernier pas a-t-il produit de la voix ? (silence de 150 ms entre deux morceaux parles)
+            let mut spoken = false; // le dernier pas a-t-il produit de la voix ? (silence de 300 ms entre deux morceaux parles)
             for step in &steps {
                 match step {
                     Step::Silence(n) => {
@@ -616,7 +623,7 @@ impl App {
                     }
                     Step::Say(i, chunk) => {
                         if spoken {
-                            pcm.resize(pcm.len() + audio::SR as usize * 15 / 100, 0.0);
+                            pcm.resize(pcm.len() + audio::SR as usize * 3 / 10, 0.0);
                         }
                         let (vp, _) = &cast[*i];
                         synth_capped(engine, chunk, lang.as_deref().unwrap_or(&vp.language), &voices[&vp.id].1, seed, &mut pcm)?;
@@ -736,6 +743,19 @@ mod tests {
         // Un reglage abime dans la base retombe sur « auto » au lieu de passer tel quel au moteur.
         app.store.lock().unwrap().set_setting("fa", "n'importe quoi").unwrap();
         assert_eq!(app.gpu_status()["fa"], "auto");
+        drop(app);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn new_generations_are_unheard_until_marked() {
+        let dir = std::env::temp_dir().join(format!("voiceclone-heard-{}", std::process::id()));
+        let app = App::open(dir.clone()).unwrap();
+        let pid = app.create_profile("Zen", "french").unwrap();
+        let id = app.store.lock().unwrap().add_generation(pid, "x", "x.wav", 1.0, 7).unwrap();
+        assert_eq!(app.list_generations(10).unwrap()[0]["heard"], false);
+        app.mark_heard(id).unwrap();
+        assert_eq!(app.list_generations(10).unwrap()[0]["heard"], true);
         drop(app);
         let _ = fs::remove_dir_all(dir);
     }

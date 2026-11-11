@@ -6,6 +6,16 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.1.5 - 2026-11-11
+
+**English**
+- **Unheard generations are highlighted** in the list (accent border and a "New" badge) until you play them. Generations that already existed count as heard.
+- **Exact pauses**: the silence the model leaves at the end of each piece is trimmed, so `[pause 2s]` gives a 2 second gap instead of 2 seconds on top of the model's own silence (which could hide the pause). Pieces of the same voice are joined with 0.3 s.
+
+**Français**
+- **Les générations non écoutées sont mises en surbrillance** dans la liste (bordure de couleur et pastille « Nouveau ») jusqu'à leur première lecture. Les générations déjà présentes comptent comme écoutées.
+- **Pauses exactes** : le silence que le modèle laisse à la fin de chaque morceau est retiré, donc `[pause 2s]` donne bien 2 secondes de silence et non 2 secondes en plus de celui du modèle (qui pouvait masquer la pause). Les morceaux de la même voix sont raccordés avec 0,3 s.
+
 ## 0.1.4 - 2026-11-11
 
 **English**

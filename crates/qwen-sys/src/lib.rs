@@ -76,7 +76,6 @@ pub struct qt_tts_params {
 
 // Registre des peripheriques de calcul de ggml (CPU, Vulkan0, CUDA0...), exporte par ggml.dll / ggml-base.dll.
 pub type ggml_backend_dev_t = *mut c_void;
-pub const GGML_DEV_CPU: c_int = 0;
 pub const GGML_DEV_GPU: c_int = 1;
 pub const GGML_DEV_IGPU: c_int = 2;
 

@@ -8,7 +8,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -68,10 +68,13 @@ pub fn install(data_dir: &Path, cancel: &AtomicBool, progress: &dyn Fn(&str, u64
     if find_cli(&d.join("bin")).is_none() {
         let zip = d.join("whisper-bin-x64.zip");
         fetch(CLI_URL, CLI_SHA256, &zip, cancel, &|a, b| progress("cli", a, b))?;
-        let bin = d.join("bin");
-        let _ = fs::remove_dir_all(&bin);
-        update::unpack(&zip, &bin)?;
+        // Decompression dans un dossier temporaire puis renommage : une extraction interrompue ne laisse jamais un programme a moitie installe.
+        let (bin, staging) = (d.join("bin"), d.join("bin.tmp"));
+        let _ = fs::remove_dir_all(&staging);
+        update::unpack(&zip, &staging)?;
         let _ = fs::remove_file(&zip);
+        let _ = fs::remove_dir_all(&bin);
+        fs::rename(&staging, &bin).map_err(e)?;
         if find_cli(&bin).is_none() {
             return Err(tr!("archive whisper.cpp incomplète : whisper-cli.exe manque", "incomplete whisper.cpp archive: whisper-cli.exe is missing"));
         }
@@ -145,7 +148,9 @@ pub fn transcribe(data_dir: &Path, pcm: &[f32], lang: &str) -> R<String> {
     if !model.is_file() {
         return Err(tr!("le modèle de transcription manque (Paramètres > Modèles)", "the transcription model is missing (Settings > Models)"));
     }
-    let wav = d.join(format!("tmp-{}.wav", std::process::id()));
+    // Nom unique : deux transcriptions en meme temps ne doivent jamais s'ecraser le fichier lu par Whisper.
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let wav = d.join(format!("tmp-{}-{}.wav", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
     {
         let spec = hound::WavSpec { channels: 1, sample_rate: 16000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
         let mut w = hound::WavWriter::create(&wav, spec).map_err(e)?;
@@ -171,6 +176,7 @@ fn run(cli: &Path, model: &Path, wav: &Path, lang: &str) -> R<String> {
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // pas de fenetre de console
     let mut child = cmd.spawn().map_err(|x| tr!("impossible de lancer whisper-cli : {}", "cannot start whisper-cli: {}", x))?;
+    crate::jobs::adopt(&child);
     let mut stdout = child.stdout.take().ok_or_else(|| "stdout".to_string())?;
     let reader = std::thread::spawn(move || {
         let mut bytes = vec![];

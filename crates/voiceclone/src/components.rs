@@ -55,10 +55,18 @@ pub fn cuda_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// Noms des cartes graphiques (une seule interrogation de Windows par lancement).
+/// PowerShell sans fenetre de console (l'application n'a pas de console : elle apparaitrait un instant).
+fn powershell() -> Command {
+    let mut c = Command::new("powershell");
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000);
+    c
+}
+
 fn gpu_names() -> &'static Vec<String> {
     static NAMES: OnceLock<Vec<String>> = OnceLock::new();
     NAMES.get_or_init(|| {
-        let out = Command::new("powershell")
+        let out = powershell()
             .args(["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance Win32_VideoController).Name"])
             .output();
         match out {
@@ -113,7 +121,7 @@ pub(crate) fn sha256_file(path: &Path) -> R<String> {
 fn verify_signature(path: &Path, expected_signer: &str) -> R<()> {
     let script = "$s = Get-AuthenticodeSignature -LiteralPath $env:VC_VERIFY_PATH; \
                   [pscustomobject]@{status=[string]$s.Status; subject=[string]$s.SignerCertificate.Subject} | ConvertTo-Json -Compress";
-    let out = Command::new("powershell")
+    let out = powershell()
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .env("VC_VERIFY_PATH", path) // le chemin passe par l'environnement : aucun probleme de guillemets
         .output()

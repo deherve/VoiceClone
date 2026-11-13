@@ -1,6 +1,9 @@
 //! Coeur de VoiceClone : utilise par le serveur MCP sans fenetre et par l'application Tauri.
 #[macro_use]
 pub mod i18n;
+pub mod jobs;
+#[cfg(test)]
+mod bench;
 pub mod audio;
 pub mod cli;
 pub mod components;
@@ -19,7 +22,7 @@ pub mod voices;
 
 use engine::{Engine, Voice};
 use serde_json::{json, Value};
-use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Instant, SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError}, time::{Instant, SystemTime, UNIX_EPOCH}};
 use script::Item;
 use store::Store;
 
@@ -101,6 +104,7 @@ pub struct App {
     component_cancel: AtomicBool,
     // Dossier des audios imposé (VOICECLONE_AUDIOS, ou essais) ; sinon `Audios\` a cote du programme.
     audios_override: Option<PathBuf>,
+    voices_cache: OnceLock<PathBuf>, // dossier Voix : la sonde d'ecriture n'est faite qu'une fois
 }
 
 fn busy() -> String {
@@ -126,6 +130,7 @@ impl App {
             component_busy: AtomicBool::new(false),
             component_cancel: AtomicBool::new(false),
             audios_override: std::env::var_os("VOICECLONE_AUDIOS").map(PathBuf::from),
+            voices_cache: OnceLock::new(),
         };
         app.seed_bundled_voices(); // la voix de Zen livree avec l'archive, au premier lancement
         Ok(app)
@@ -197,7 +202,7 @@ impl App {
     pub fn models(&self) -> Value {
         let (active, dir) = (self.talker(), self.models_dir());
         // Verrou pris = generation en cours, donc le modele actif est en memoire.
-        let loaded = match self.rt.try_lock() {
+        let loaded = match self.try_rt() {
             Ok(rt) => rt.engine.as_ref().map(|(f, _)| f.clone()),
             Err(_) => Some(active.clone()),
         };
@@ -250,9 +255,19 @@ impl App {
         }
     }
 
+    /// Verrou du moteur sans attendre (`Err` : une generation est en cours). Un verrou « empoisonne » par une panique
+    /// pendant une synthese redevient utilisable : sinon l'application resterait bloquee jusqu'au redemarrage.
+    fn try_rt(&self) -> Result<MutexGuard<'_, Runtime>, ()> {
+        match self.rt.try_lock() {
+            Ok(g) => Ok(g),
+            Err(TryLockError::Poisoned(p)) => Ok(p.into_inner()),
+            Err(TryLockError::WouldBlock) => Err(()),
+        }
+    }
+
     /// Libere la RAM et la VRAM du modele ; il sera recharge au prochain `speak`.
     pub fn unload(&self) -> R<()> {
-        let mut rt = self.rt.try_lock().map_err(|_| busy())?;
+        let mut rt = self.try_rt().map_err(|_| busy())?;
         rt.voices.clear();
         rt.engine = None;
         rt.device = None;
@@ -298,7 +313,7 @@ impl App {
             // Vulkan et le reste = les reglages valides sur la RX 6700 XT (pas de flash, pas de clamp).
             let use_fa = match fa.as_str() { "on" => true, "off" => false, _ => cuda };
             let clamp_fp16 = match clamp.as_str() { "on" => true, "off" => false, _ => cuda && engine::needs_clamp(desc) };
-            match Engine::load(&dir.join(talker), &dir.join(models::CODEC), name, use_fa, clamp_fp16) {
+            match Engine::load(&dir.join(talker), &dir.join(models::CODEC), name, use_fa, clamp_fp16, engine::choose_batch(devs.iter().find(|d| d.name == *name))) {
                 Ok(loaded) => return Ok((loaded, name.clone(), (!notes.is_empty()).then(|| notes.join(" · ")))),
                 Err(x) => notes.push(tr!("{} indisponible ({})", "{} unavailable ({})", name, x)),
             }
@@ -310,7 +325,7 @@ impl App {
     pub fn gpu_status(&self) -> Value {
         let devs = engine::devices();
         let best = engine::auto_order(&devs).into_iter().next();
-        let (active, note) = match self.rt.try_lock() {
+        let (active, note) = match self.try_rt() {
             Ok(rt) => (rt.device.clone(), rt.note.clone()),
             Err(_) => (None, None), // generation en cours : l'etat reste valable, on ne bloque pas l'interface
         };
@@ -353,7 +368,7 @@ impl App {
             return Err(tr!("téléchargement en cours : annulez-le d'abord", "download in progress: cancel it first"));
         }
         // Le moteur garde le fichier ouvert : on le decharge s'il s'en sert.
-        let mut rt = self.rt.try_lock().map_err(|_| busy())?;
+        let mut rt = self.try_rt().map_err(|_| busy())?;
         if rt.engine.as_ref().is_some_and(|(f, _)| f == file || file == models::CODEC) {
             rt.voices.clear();
             rt.engine = None;
@@ -575,7 +590,12 @@ impl App {
         fs::create_dir_all(dir).map_err(e)?;
         let mut made = vec![];
         for voice in export::voices(&cues) {
-            let path = dir.join(format!("{base}-{}.wav", voices::folder_name(&voice)));
+            let mut path = dir.join(format!("{base}-{}.wav", voices::folder_name(&voice)));
+            let mut k = 2;
+            while made.contains(&path) {
+                path = dir.join(format!("{base}-{}-{k}.wav", voices::folder_name(&voice))); // « Zen? » et « Zen* » donnent le meme nom
+                k += 1;
+            }
             audio::write_wav(&path, &export::stem(&pcm, &cues, &voice))?;
             made.push(path);
         }
@@ -692,7 +712,6 @@ impl App {
         let lang_code = |name: &str| transcribe::lang_code(&cli::language(name).unwrap_or_default());
         let (cast, steps) = {
             let store = self.store.lock().unwrap();
-            let main = store.find_profile(profile)?;
             let names: Vec<String> = store.list_profiles()?.as_array().into_iter().flatten().filter_map(|v| v["name"].as_str().map(String::from)).collect();
             let join = |cast: &mut Cast, p: store::ProfileRef| -> R<usize> {
                 if let Some(i) = cast.iter().position(|(c, _)| c.id == p.id) {
@@ -706,7 +725,7 @@ impl App {
                 Ok(cast.len() - 1)
             };
             let (mut cast, mut steps): (Cast, Vec<Step>) = (vec![], vec![]);
-            let mut current = join(&mut cast, main)?;
+            let mut current: Option<usize> = None; // voix principale : resolue au premier texte dit sans balise de voix
             for item in items {
                 match item {
                     Item::Pause(s) => steps.push(Step::Silence((s * audio::SR as f32) as usize)),
@@ -714,16 +733,33 @@ impl App {
                         let real = names.iter().find(|x| x.to_lowercase() == n.to_lowercase()).ok_or_else(|| {
                             tr!("voix inconnue : [{}] (voix disponibles : {})", "unknown voice: [{}] (available voices: {})", n, names.join(", "))
                         })?;
-                        current = join(&mut cast, store.find_profile(Some(real))?)?;
+                        current = Some(join(&mut cast, store.find_profile(Some(real))?)?);
                     }
                     Item::Text(t) => {
-                        let code = lang_code(lang.unwrap_or(&cast[current].0.language));
-                        steps.extend(audio::split_text(&t, MAX_CHUNK_CHARS).into_iter().map(|c| Step::Say(current, normalize::normalize(&c, &dict, numbers, code), c)));
+                        let cur = match current {
+                            Some(c) => c,
+                            None => {
+                                let c = join(&mut cast, store.find_profile(profile)?)?;
+                                current = Some(c);
+                                c
+                            }
+                        };
+                        let code = lang_code(lang.unwrap_or(&cast[cur].0.language));
+                        // Un morceau sans rien a prononcer (que de la ponctuation, ou remplace par du vide) est ignore.
+                        steps.extend(
+                            audio::split_text(&t, MAX_CHUNK_CHARS)
+                                .into_iter()
+                                .map(|c| Step::Say(cur, normalize::normalize(&c, &dict, numbers, code), c))
+                                .filter(|st| matches!(st, Step::Say(_, spoken, _) if spoken.chars().any(char::is_alphanumeric))),
+                        );
                     }
                 }
             }
             (cast, steps)
         };
+        if !steps.iter().any(|st| matches!(st, Step::Say(..))) {
+            return Err(tr!("texte vide", "empty text"));
+        }
         // Voix qui parlent vraiment (dans l'ordre) : la generation est rangee sous la premiere ; plusieurs = « multiple ».
         let used: Vec<usize> = steps.iter().fold(vec![], |mut u, s| {
             if let Step::Say(i, _, _) = s {
@@ -741,7 +777,7 @@ impl App {
         let mut warnings: Vec<String> = vec![];
         let mut timeline: Vec<export::Cue> = vec![];
         {
-            let mut rt = self.rt.lock().unwrap();
+            let mut rt = self.rt.lock().unwrap_or_else(PoisonError::into_inner);
             let Runtime { engine, voices, device, note } = &mut *rt;
             let talker = self.talker();
             if engine.as_ref().map_or(true, |(f, _)| *f != talker) {
@@ -780,20 +816,51 @@ impl App {
                     voices.insert(vp.id, (signature, engine.voice(&reference, ref_text.as_deref())?));
                 }
             }
+            // Syntheses des morceaux, plusieurs a la fois (le moteur les calcule ensemble) puis assemblage dans l'ordre.
+            let jobs: Vec<usize> = steps.iter().enumerate().filter_map(|(k, s)| matches!(s, Step::Say(..)).then_some(k)).collect();
+            let workers = engine.batch().min(jobs.len()).max(1);
+            let pieces: Vec<std::sync::Mutex<Option<R<Vec<f32>>>>> = steps.iter().map(|_| std::sync::Mutex::new(None)).collect();
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let failed = AtomicBool::new(false); // un morceau a echoue : inutile de calculer les suivants
+            std::thread::scope(|scope| {
+                for _ in 0..workers {
+                    scope.spawn(|| loop {
+                        if failed.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let j = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(&k) = jobs.get(j) else { break };
+                        let Step::Say(i, chunk, _) = &steps[k] else { continue };
+                        let (vp, _) = &cast[*i];
+                        let mut out = Vec::new();
+                        let r = synth_capped(engine, chunk, lang.as_deref().unwrap_or(&vp.language), &voices[&vp.id].1, seed, &mut out).map(|_| out);
+                        if r.is_err() {
+                            failed.store(true, Ordering::Relaxed);
+                        }
+                        *pieces[k].lock().unwrap() = Some(r);
+                    });
+                }
+            });
+            // Memoire : une seule reservation pour tout l'audio (une heure = 345 Mo ; sans cela, les agrandissements successifs triplent le pic).
+            let total: usize = steps.iter().enumerate().map(|(k, st)| match st {
+                Step::Silence(n) => *n,
+                Step::Say(..) => pieces[k].lock().unwrap().as_ref().and_then(|r| r.as_ref().ok()).map_or(0, Vec::len) + audio::SR as usize * 3 / 10,
+            }).sum();
+            pcm.reserve_exact(total);
             let mut spoken = false; // le dernier pas a-t-il produit de la voix ? (silence de 300 ms entre deux morceaux parles)
-            for step in &steps {
+            for (k, step) in steps.iter().enumerate() {
                 match step {
                     Step::Silence(n) => {
                         pcm.resize(pcm.len() + n, 0.0);
                         spoken = false;
                     }
-                    Step::Say(i, chunk, shown) => {
+                    Step::Say(i, _, shown) => {
                         if spoken {
                             pcm.resize(pcm.len() + audio::SR as usize * 3 / 10, 0.0);
                         }
                         let (vp, _) = &cast[*i];
                         let start = pcm.len();
-                        synth_capped(engine, chunk, lang.as_deref().unwrap_or(&vp.language), &voices[&vp.id].1, seed, &mut pcm)?;
+                        pcm.extend(pieces[k].lock().unwrap().take().ok_or_else(|| tr!("synthèse interrompue", "synthesis interrupted"))??);
                         timeline.push(export::Cue { voice: vp.name.clone(), start: start as f64 / audio::SR as f64, end: pcm.len() as f64 / audio::SR as f64, text: shown.clone() });
                         spoken = true;
                     }
@@ -806,13 +873,15 @@ impl App {
         let stored = cli::free_path(&self.audios_dir(), &cli::file_stem(&script::strip(text), false));
         audio::write_wav(&stored, &pcm)?;
         let duration = pcm.len() as f64 / audio::SR as f64;
-        let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed)?;
-        if used.len() > 1 {
-            self.store.lock().unwrap().set_multi(id)?;
-        }
-        self.store.lock().unwrap().set_timeline(id, &export::to_json(&timeline))?;
+        let id = self.store.lock().unwrap().add_generation(p.id, text.trim(), &stored.to_string_lossy(), duration, seed).inspect_err(|_| {
+            let _ = fs::remove_file(&stored); // pas de fichier orphelin si l'historique refuse la ligne
+        })?;
         // La generation existe des maintenant dans l'historique ; si la suite echoue on la retire pour ne pas laisser d'orphelin.
         let finish = || -> R<PathBuf> {
+            if used.len() > 1 {
+                self.store.lock().unwrap().set_multi(id)?;
+            }
+            self.store.lock().unwrap().set_timeline(id, &export::to_json(&timeline))?;
             if enhanced {
                 self.set_enhanced(id, true)?;
             }
@@ -864,6 +933,15 @@ impl App {
             done.push(name.to_string());
         }
         Ok(done)
+    }
+}
+
+/// Code de langue Voicebox -> nom de langue attendu par Qwen3-TTS.
+fn lang_name(code: &str) -> &'static str {
+    match code {
+        "fr" => "french", "en" => "english", "de" => "german", "es" => "spanish", "it" => "italian",
+        "pt" => "portuguese", "ja" => "japanese", "ko" => "korean", "zh" => "chinese", "ru" => "russian",
+        _ => "auto",
     }
 }
 
@@ -1098,11 +1176,3 @@ mod tests {
     }
 }
 
-/// Code de langue Voicebox -> nom de langue attendu par Qwen3-TTS.
-fn lang_name(code: &str) -> &'static str {
-    match code {
-        "fr" => "french", "en" => "english", "de" => "german", "es" => "spanish", "it" => "italian",
-        "pt" => "portuguese", "ja" => "japanese", "ko" => "korean", "zh" => "chinese", "ru" => "russian",
-        _ => "auto",
-    }
-}

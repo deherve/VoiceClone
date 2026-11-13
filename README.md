@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/banner-0.2.2.png" alt="VoiceClone: local voice cloning / clonage de voix local" width="100%"></p>
+<p align="center"><img src="docs/banner-0.2.3.png" alt="VoiceClone: local voice cloning / clonage de voix local" width="100%"></p>
 
 # VoiceClone
 

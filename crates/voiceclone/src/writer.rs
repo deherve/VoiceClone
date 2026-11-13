@@ -38,10 +38,13 @@ pub fn install(data_dir: &Path, cancel: &AtomicBool, progress: &dyn Fn(&str, u64
     if transcribe::find_file(&d.join("bin"), "llama-server.exe").is_none() {
         let zip = d.join("llama-bin.zip");
         transcribe::fetch(LLAMA_URL, LLAMA_SHA256, &zip, cancel, &|a, b| progress("bin", a, b))?;
-        let bin = d.join("bin");
-        let _ = fs::remove_dir_all(&bin);
-        update::unpack(&zip, &bin)?;
+        // Decompression dans un dossier temporaire puis renommage : une extraction interrompue ne laisse jamais un moteur a moitie installe.
+        let (bin, staging) = (d.join("bin"), d.join("bin.tmp"));
+        let _ = fs::remove_dir_all(&staging);
+        update::unpack(&zip, &staging)?;
         let _ = fs::remove_file(&zip);
+        let _ = fs::remove_dir_all(&bin);
+        fs::rename(&staging, &bin).map_err(e)?;
         if transcribe::find_file(&bin, "llama-server.exe").is_none() {
             return Err(tr!("archive llama.cpp incomplète : llama-server.exe manque", "incomplete llama.cpp archive: llama-server.exe is missing"));
         }
@@ -139,7 +142,7 @@ pub struct Request {
     pub mode: Mode,
     /// « fr » ou « en ».
     pub language: String,
-    /// Duree visee a voix haute, en secondes (15 a 600).
+    /// Duree visee a voix haute, en secondes (15 a `MAX_SECONDS`).
     pub seconds: u32,
     pub tone: Tone,
     /// Voix autorisees (dialogue) : leurs noms exacts.
@@ -260,7 +263,7 @@ pub fn clean_reply(raw: &str, voices: &[String], dialogue: bool) -> String {
     let mut lines = vec![];
     for line in text.lines() {
         let mut l = line.trim().replace(['*', '`', '_'], "");
-        l = l.trim_start_matches(|c| matches!(c, '#' | '>' | '-' | '•' | ' ')).to_string();
+        l = l.trim_start_matches(['#', '>', '-', '•', ' ']).to_string();
         if dialogue {
             l = strip_parentheses(&l);
             l = speaker_prefix(&l, voices);
@@ -347,6 +350,7 @@ fn start(exe: &Path, model: &Path, gpu: bool) -> R<Server> {
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // pas de fenetre de console
     let child = cmd.spawn().map_err(|x| tr!("impossible de lancer llama-server : {}", "cannot start llama-server: {}", x))?;
+    crate::jobs::adopt(&child); // meurt avec l'application, meme si elle est fermee pendant l'ecriture
     Ok(Server { child, port })
 }
 

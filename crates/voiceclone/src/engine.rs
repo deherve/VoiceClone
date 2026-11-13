@@ -11,9 +11,12 @@ fn cstr(s: &str) -> R<CString> {
     CString::new(s).map_err(|_| tr!("caractère nul interdit dans le texte", "null character not allowed in the text"))
 }
 
-pub struct Engine(*mut qt_context);
+pub struct Engine(*mut qt_context, usize);
 // qwen.h : qt_synthesize est bloquant et thread safe ; l'App le garde en plus derriere un Mutex.
 unsafe impl Send for Engine {}
+// Plusieurs threads peuvent appeler `synth` en meme temps : le moteur regroupe alors leurs demandes en un seul calcul
+// (voir `max_batch`).
+unsafe impl Sync for Engine {}
 
 #[cfg(test)]
 mod tests {
@@ -36,6 +39,19 @@ mod tests {
         // Aucun GPU, ou registre vide : le CPU reste toujours possible.
         assert_eq!(auto_order(&[dev("CPU", "x", false, false)]), ["CPU"]);
         assert_eq!(auto_order(&[]), ["CPU"]);
+    }
+
+    #[test]
+    fn batch_follows_free_video_memory() {
+        let gpu = |free: u64| Device { free_mb: free, ..dev("Vulkan0", "AMD Radeon RX 6700 XT", true, false) };
+        assert_eq!(choose_batch(Some(&gpu(11500))), 4); // 12 Go libres : maximum
+        assert_eq!(choose_batch(Some(&gpu(8800))), 3);
+        assert_eq!(choose_batch(Some(&gpu(7600))), 2);
+        assert_eq!(choose_batch(Some(&gpu(7000))), 1);
+        assert_eq!(choose_batch(Some(&gpu(4000))), 1); // petite carte : une a la fois
+        assert_eq!(choose_batch(Some(&gpu(0))), 2); // inconnu
+        assert_eq!(choose_batch(Some(&dev("CPU", "Ryzen", false, false))), 1);
+        assert_eq!(choose_batch(None), 1);
     }
 
     #[test]
@@ -66,6 +82,23 @@ pub struct Voice {
     t: i32,
     // None : pas de transcription, clonage par timbre seul (x-vector), moins fidele.
     ref_text: Option<CString>,
+}
+
+/// Nombre de syntheses calculees ensemble (`max_batch` du moteur), selon la memoire video libre.
+/// Mesure sur RX 6700 XT (12 Go), texte de 12 minutes : 1 → 154 s et 5,2 Go de memoire video ; 2 → 107 s, 6,1 Go ; 3 → 92 s,
+/// 7,0 Go ; 4 → 84 s, 7,9 Go ; 6 → 113 s, 9,0 Go (plus lent : la carte est saturee). Chaque place coute environ 0,9 Go ;
+/// on garde 1,5 Go de marge. Le processeur (pas de memoire video) calcule une synthese a la fois.
+/// `VOICECLONE_BATCH` impose une valeur (essais).
+pub fn choose_batch(dev: Option<&Device>) -> i32 {
+    if let Some(v) = std::env::var("VOICECLONE_BATCH").ok().and_then(|v| v.parse::<i32>().ok()) {
+        return v.clamp(1, 8);
+    }
+    let Some(d) = dev.filter(|d| d.gpu) else { return 1 };
+    if d.free_mb == 0 {
+        return 2; // memoire libre inconnue : prudence
+    }
+    let spare = d.free_mb as i64 - 5200 - 1500;
+    (1 + spare / 900).clamp(1, 4) as i32
 }
 
 /// Peripherique de calcul vu par ggml : "CPU", "Vulkan0", "CUDA0"...
@@ -171,7 +204,13 @@ pub fn needs_clamp(description: &str) -> bool {
 
 impl Engine {
     /// Charge le modele sur `device` (nom ggml). `use_fa` : attention « flash » ; `clamp` : garde FP16.
-    pub fn load(talker: &Path, codec: &Path, device: &str, use_fa: bool, clamp: bool) -> R<Self> {
+    /// Nombre de syntheses que le moteur calcule ensemble (voir `choose_batch`).
+    pub fn batch(&self) -> usize {
+        self.1
+    }
+
+    /// `batch` : nombre de syntheses calculees ensemble sur la carte (1 = une a la fois).
+    pub fn load(talker: &Path, codec: &Path, device: &str, use_fa: bool, clamp: bool, batch: i32) -> R<Self> {
         for p in [talker, codec] {
             if !p.exists() {
                 return Err(tr!("modèle absent ({}) : téléchargez-le dans Paramètres", "model missing ({}): download it in Settings", p.file_name().unwrap_or_default().to_string_lossy()));
@@ -190,8 +229,9 @@ impl Engine {
             p.device = device.as_ptr();
             p.use_fa = use_fa;
             p.clamp_fp16 = clamp;
+            p.max_batch = batch.max(1);
             let q = qt_init(&p);
-            if q.is_null() { Err(tr!("chargement du modèle : {}", "loading the model: {}", last_err())) } else { Ok(Engine(q)) }
+            if q.is_null() { Err(tr!("chargement du modèle : {}", "loading the model: {}", last_err())) } else { Ok(Engine(q, batch.max(1) as usize)) }
         }
     }
 
@@ -234,7 +274,8 @@ impl Engine {
             if qt_synthesize(self.0, &p, &mut out) != QT_STATUS_OK {
                 return Err(tr!("synthèse : {}", "synthesis: {}", last_err()));
             }
-            let pcm = std::slice::from_raw_parts(out.samples, out.n_samples as usize).to_vec();
+            // Le moteur peut repondre « OK » sans aucun son (texte sans rien a dire) : pointeur nul, longueur 0.
+            let pcm = if out.samples.is_null() || out.n_samples <= 0 { vec![] } else { std::slice::from_raw_parts(out.samples, out.n_samples as usize).to_vec() };
             qt_audio_free(&mut out);
             Ok(pcm)
         }

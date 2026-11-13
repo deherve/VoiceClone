@@ -25,7 +25,7 @@ fn replace_words(text: &str, dict: &[(String, String)], cased: bool) -> String {
                     && (end == chars.len() || !chars[end].is_alphanumeric() || !from.last().is_some_and(|c| c.is_alphanumeric()))
                 {
                     match to.chars().next() {
-                        Some(c) if cased && chars[i].is_uppercase() && chars.get(i + 1).map_or(true, |n| !n.is_uppercase()) && c.is_lowercase() => {
+                        Some(c) if cased && chars[i].is_uppercase() && chars.get(i + 1).is_none_or(|n| !n.is_uppercase()) && c.is_lowercase() => {
                             out.extend(c.to_uppercase());
                             out.push_str(&to[c.len_utf8()..]);
                         }
@@ -222,7 +222,7 @@ fn en_number(n: u64) -> Option<String> {
             parts.push(format!("{} {name}", en_999(g)));
         }
     }
-    if n % 1000 > 0 {
+    if !n.is_multiple_of(1000) {
         parts.push(en_999(n % 1000));
     }
     Some(parts.join(" "))
@@ -276,7 +276,7 @@ pub fn numbers_to_words(text: &str, lang: &str) -> String {
             while j + 4 <= chars.len()
                 && matches!(chars[j], ' ' | '\u{a0}' | '\u{202f}')
                 && chars[j + 1..j + 4].iter().all(char::is_ascii_digit)
-                && chars.get(j + 4).map_or(true, |c| !c.is_ascii_digit())
+                && chars.get(j + 4).is_none_or(|c| !c.is_ascii_digit())
             {
                 int_part.extend(&chars[j + 1..j + 4]);
                 j += 4;

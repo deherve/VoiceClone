@@ -15,6 +15,8 @@ fn usage() -> String {
   voiceclone-server export-voice <nom> [dossier]   exporte une voix (défaut : dossier Voix du programme)
   voiceclone-server import-voices [dossier]        importe les voix d'un dossier (défaut : Voix)
   voiceclone-server voice-check <nom>              analyse la qualité des échantillons d'une voix
+  voiceclone-server transcribe <fichier.wav> [lg]  transcrit un enregistrement (Whisper installé)
+  voiceclone-server write <dialogue|recit> \"demande\" [fr|en] [secondes] [ton] [voix]   écrit un texte avec l'IA locale
   voiceclone-server import-voicebox <dossier sh.voicebox.app> [nom]",
 "VoiceClone (server version)
 
@@ -23,6 +25,8 @@ fn usage() -> String {
   voiceclone-server export-voice <name> [folder]   exports a voice (default: the program's Voix folder)
   voiceclone-server import-voices [folder]         imports the voices of a folder (default: Voix)
   voiceclone-server voice-check <name>             analyses the quality of a voice's samples
+  voiceclone-server transcribe <file.wav> [lang]   transcribes a recording (Whisper installed)
+  voiceclone-server write <dialogue|story> \"request\" [fr|en] [seconds] [tone] [voices]   writes a text with the local AI
   voiceclone-server import-voicebox <sh.voicebox.app folder> [name]")
 }
 

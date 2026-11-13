@@ -165,7 +165,12 @@ pub(crate) fn unpack(zip_path: &Path, out: &Path) -> R<()> {
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(e)?;
         }
-        std::io::copy(&mut f, &mut fs::File::create(&dest).map_err(e)?).map_err(e)?;
+        // La taille declaree dans l'archive peut mentir : on borne ce qui est reellement ecrit.
+        let declared = f.size();
+        let written = std::io::copy(&mut std::io::Read::take(&mut f, declared + 1), &mut fs::File::create(&dest).map_err(e)?).map_err(e)?;
+        if written > declared {
+            return Err(tr!("archive de mise à jour refusée (taille incohérente)", "update archive refused (inconsistent size)"));
+        }
     }
     Ok(())
 }
@@ -173,9 +178,13 @@ pub(crate) fn unpack(zip_path: &Path, out: &Path) -> R<()> {
 const APPLY_SCRIPT: &str = r#"param([int]$ProcId, [string]$Src, [string]$Dst, [string]$Exe, [string]$Log)
 $ErrorActionPreference = 'Stop'
 try {
-    if ($ProcId) { try { Wait-Process -Id $ProcId -Timeout 60 } catch { } }
+    # On ne copie jamais tant que l'application tourne : des fichiers verrouilles donneraient un programme melange.
+    if ($ProcId -and (Get-Process -Id $ProcId -ErrorAction SilentlyContinue)) {
+        Wait-Process -Id $ProcId -Timeout 60 -ErrorAction SilentlyContinue
+        if (Get-Process -Id $ProcId -ErrorAction SilentlyContinue) { throw 'application encore ouverte' }
+    }
     # Le serveur sans fenetre du meme dossier verrouille son fichier : on l'arrete.
-    Get-Process voiceclone-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($Dst, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
+    Get-Process voiceclone-server -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($Dst.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
     Start-Sleep -Milliseconds 700
     # Les donnees de l'utilisateur ne sont jamais touchees : data, Audios, Voix, fichier portable.
     robocopy $Src $Dst /E /XD Voix data Audios /XF portable /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -210,8 +219,10 @@ pub fn apply(staged: &Path, install_dir: &Path, exe: &Path, pid: u32, data_dir: 
     fs::write(&script, [&[0xEF, 0xBB, 0xBF][..], APPLY_SCRIPT.as_bytes()].concat()).map_err(e)?;
     let log = dir.join("update.log");
     let _ = fs::remove_file(&log);
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
+    let mut cmd = std::process::Command::new("powershell");
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // pas de fenetre de console
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
         .arg(&script)
         .arg("-ProcId").arg(pid.to_string())
         .arg("-Src").arg(staged)

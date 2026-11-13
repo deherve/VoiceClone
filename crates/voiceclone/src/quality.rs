@@ -22,7 +22,7 @@ pub fn measure(pcm: &[f32]) -> Metrics {
     // Niveau par fenetres de 20 ms : le 10e centile est le fond, le 90e la parole.
     let hop = (sr * 0.02) as usize;
     let mut levels: Vec<f32> = pcm.chunks_exact(hop).map(|w| (w.iter().map(|x| x * x).sum::<f32>() / hop as f32).sqrt()).collect();
-    levels.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    levels.sort_by(f32::total_cmp); // total_cmp : un WAV avec des NaN ne fait pas paniquer
     let pct = |p: f32| levels.get(((levels.len() as f32 - 1.0) * p) as usize).copied().unwrap_or(0.0);
     let snr_db = 20.0 * (pct(0.9).max(1e-6) / pct(0.1).max(1e-6)).log10();
     Metrics { secs: pcm.len() as f64 / SR as f64, peak, clipped_pct: 100.0 * clipped / pcm.len().max(1) as f32, snr_db, f0: median_f0(pcm) }
@@ -44,7 +44,7 @@ fn median_f0(pcm: &[f32]) -> Option<f32> {
         if (energy / frame as f32).sqrt() < 0.02 {
             continue; // silence
         }
-        let best = (lo..hi.min(frame - 1)).map(|k| (k, x[..frame - k].iter().zip(&x[k..]).map(|(a, b)| a * b).sum::<f32>())).max_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let best = (lo..hi.min(frame - 1)).map(|k| (k, x[..frame - k].iter().zip(&x[k..]).map(|(a, b)| a * b).sum::<f32>())).max_by(|a, b| a.1.total_cmp(&b.1));
         if let Some((k, ac)) = best {
             if ac > 0.3 * energy {
                 found.push(sr as f32 / k as f32);
@@ -54,7 +54,7 @@ fn median_f0(pcm: &[f32]) -> Option<f32> {
     if found.is_empty() {
         return None;
     }
-    found.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    found.sort_by(f32::total_cmp);
     Some(found[found.len() / 2])
 }
 
@@ -95,6 +95,14 @@ mod tests {
 
     fn tone(hz: f32, secs: f32, amp: f32) -> Vec<f32> {
         (0..(SR as f32 * secs) as usize).map(|i| amp * (2.0 * std::f32::consts::PI * hz * i as f32 / SR as f32).sin()).collect()
+    }
+
+    #[test]
+    fn nan_samples_do_not_panic() {
+        let mut pcm = tone(120.0, 1.0, 0.3);
+        pcm[100] = f32::NAN;
+        pcm[5000] = f32::INFINITY;
+        let _ = measure(&pcm);
     }
 
     #[test]

@@ -24,7 +24,7 @@ fn pause_secs(tag: &str) -> Option<R<f32>> {
     if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
         return None; // « [pauses] » est un nom de voix
     }
-    let num = rest.trim().trim_end_matches(|c| c == 's' || c == 'S').trim().replace(',', ".");
+    let num = rest.trim().trim_end_matches(['s', 'S']).trim().replace(',', ".");
     if num.is_empty() {
         return Some(Ok(DEFAULT_PAUSE));
     }

@@ -103,7 +103,8 @@ pub fn encode_mp3(pcm: &[f32]) -> R<Vec<u8>> {
     b.set_num_channels(1).map_err(e)?;
     b.set_sample_rate(SR).map_err(e)?;
     b.set_brate(Bitrate::Kbps128).map_err(e)?;
-    b.set_quality(Quality::Best).map_err(e)?;
+    // NearBest (q2, reglage recommande par LAME) : 2,8 fois plus rapide que Best (q0) pour un resultat perceptivement identique a 128 kb/s.
+    b.set_quality(Quality::NearBest).map_err(e)?;
     let mut enc = b.build().map_err(e)?;
     let samples: Vec<i16> = pcm.iter().map(|&x| (x.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
     let mut out = Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(samples.len()));
@@ -124,7 +125,8 @@ pub fn split_text(text: &str, max: usize) -> Vec<String> {
     while let Some(c) = it.next() {
         sentence.push(c);
         // "3.5" ou "v1.0" ne coupent pas : il faut un espace (ou la fin) apres la ponctuation.
-        let end = c == '\n' || (".!?…".contains(c) && it.peek().map_or(true, |n| n.is_whitespace()));
+        // Chinois / japonais : « 。！？ » terminent la phrase sans espace derriere.
+        let end = c == '\n' || "。！？".contains(c) || (".!?…".contains(c) && it.peek().is_none_or(|n| n.is_whitespace()));
         if end || it.peek().is_none() {
             if !cur.trim().is_empty() && cur.chars().count() + sentence.chars().count() > max {
                 chunks.push(std::mem::take(&mut cur));
@@ -155,8 +157,8 @@ pub fn transcript_plausible(text: &str, secs: f64) -> bool {
 pub fn trim_silence(pcm: &mut Vec<f32>, keep_ms: usize) {
     let hop = SR as usize / 100; // fenetres de 10 ms
     let loud = |w: &[f32]| (w.iter().map(|x| x * x).sum::<f32>() / w.len() as f32).sqrt() > 0.01;
-    let Some(first) = pcm.chunks(hop).position(|w| loud(w)) else { return };
-    let last = pcm.chunks(hop).rposition(|w| loud(w)).unwrap_or(first);
+    let Some(first) = pcm.chunks(hop).position(loud) else { return };
+    let last = pcm.chunks(hop).rposition(loud).unwrap_or(first);
     let keep = SR as usize * keep_ms / 1000;
     let (start, end) = ((first * hop).saturating_sub(keep), ((last + 1) * hop + keep).min(pcm.len()));
     pcm.truncate(end);
@@ -175,7 +177,9 @@ pub fn halve(text: &str) -> Vec<String> {
         return by_sentence;
     }
     let chars: Vec<char> = text.chars().collect();
-    let cut = (0..n).filter(|&i| chars[i] == ' ').min_by_key(|&i| i.abs_diff(n / 2));
+    // Sans espace : ecritures chinoise/japonaise/coreenne (coupe a la ponctuation ou au milieu) ; un mot latin tres long reste entier.
+    let cut = (0..n).filter(|&i| chars[i] == ' ').min_by_key(|&i| i.abs_diff(n / 2)).or_else(|| (1..n).filter(|&i| "，、,；;".contains(chars[i - 1])).min_by_key(|&i| i.abs_diff(n / 2)))
+        .or_else(|| chars.iter().any(|&c| ('\u{3000}'..='\u{9fff}').contains(&c) || ('\u{ac00}'..='\u{d7af}').contains(&c)).then_some(n / 2));
     match cut {
         Some(i) => vec![chars[..i].iter().collect::<String>().trim().to_string(), chars[i..].iter().collect::<String>().trim().to_string()],
         None => vec![text.to_string()],
@@ -281,6 +285,18 @@ mod tests {
         let mut silent = vec![0.0; sr];
         trim_silence(&mut silent, 50);
         assert_eq!(silent.len(), sr, "un morceau muet reste tel quel");
+    }
+
+    #[test]
+    fn chinese_text_is_split_and_halved_without_spaces() {
+        let zh = "今天天气很好。我们去公园散步吧！你觉得怎么样？".repeat(40);
+        let chunks = split_text(&zh, 300);
+        assert!(chunks.len() > 1 && chunks.iter().all(|c| c.chars().count() <= 330), "{}", chunks.len());
+        assert_eq!(chunks.concat(), zh);
+        let long = "字".repeat(100);
+        let halves = halve(&long);
+        assert_eq!(halves.len(), 2);
+        assert_eq!(halves.concat(), long);
     }
 
     #[test]

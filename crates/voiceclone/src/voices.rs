@@ -35,6 +35,12 @@ pub fn folder_name(name: &str) -> String {
     s
 }
 
+/// Nom de la voix exportee dans ce dossier (`voice.json`), s'il y en a une.
+fn folder_voice_name(dir: &Path) -> Option<String> {
+    let v: Value = serde_json::from_str(&fs::read_to_string(dir.join("voice.json")).ok()?).ok()?;
+    v["name"].as_str().map(String::from)
+}
+
 /// `sample-12.wav` → 12 ; tout autre nom (chemin, extension, chiffres en trop) est refuse.
 fn sample_number(file_name: &str) -> Option<u32> {
     let n = file_name.strip_prefix("sample-")?.strip_suffix(".wav")?;
@@ -45,6 +51,10 @@ impl App {
     /// Dossier `Voix` du programme (a cote de l'executable ; `VOICECLONE_VOICES` pour l'essayer ailleurs). S'il n'est pas
     /// modifiable (programme installe dans un dossier protege), on prend `Voix` dans le dossier de donnees.
     pub fn voices_dir(&self) -> PathBuf {
+        self.voices_cache.get_or_init(|| self.probe_voices_dir()).clone()
+    }
+
+    fn probe_voices_dir(&self) -> PathBuf {
         let main = bundled_dir().unwrap_or_else(|| self.dir.join("Voix"));
         let usable = fs::create_dir_all(&main).is_ok() && {
             let probe = main.join(".ecriture");
@@ -62,8 +72,18 @@ impl App {
 
     /// Exporte une voix dans `Voix\<Nom>\` ; retourne ce dossier.
     pub fn export_voice_to_folder(&self, name: &str) -> R<PathBuf> {
+        self.export_into(&self.voices_dir(), name)
+    }
+
+    fn export_into(&self, base_dir: &Path, name: &str) -> R<PathBuf> {
         let real = self.store.lock().unwrap().find_profile(Some(name))?.name;
-        let dir = self.voices_dir().join(folder_name(&real));
+        // « a:b » et « a_b » donnent le meme nom de dossier : la seconde voix prend un suffixe au lieu d'ecraser la premiere.
+        let (base, mut n) = (folder_name(&real), 2);
+        let mut dir = base_dir.join(&base);
+        while folder_voice_name(&dir).is_some_and(|other| other != real) {
+            dir = base_dir.join(format!("{base}-{n}"));
+            n += 1;
+        }
         self.export_voice(&real, &dir)?;
         Ok(dir)
     }
@@ -174,8 +194,11 @@ impl App {
             return vec![];
         }
         let Some(dir) = bundled_dir().filter(|d| d.is_dir()) else { return vec![] };
-        let names = self.import_voices_from(&dir).unwrap_or_default();
-        let _ = self.store.lock().unwrap().set_setting("voices_seeded", "1");
+        // Une voix illisible n'empeche plus les suivantes (Zen comprise) ; « deja fait » n'est note que si tout s'est bien passe.
+        let Ok((names, _, errors)) = self.import_voices_report(&dir) else { return vec![] };
+        if errors.is_empty() {
+            let _ = self.store.lock().unwrap().set_setting("voices_seeded", "1");
+        }
         names
     }
 }
@@ -191,6 +214,30 @@ mod tests {
         for bad in ["sample-.wav", "sample-1.mp3", "sample-1234.wav", "Sample-1.wav", "sample-1.wav.exe", "../sample-1.wav", "sample-a.wav", "x.wav"] {
             assert_eq!(sample_number(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn seeding_continues_after_an_unreadable_voice_and_exports_do_not_collide() {
+        let base = std::env::temp_dir().join(format!("voiceclone-seed-{}", std::process::id()));
+        let tone: Vec<f32> = (0..48000).map(|i| 0.1 * (i as f32 * 0.05).sin()).collect();
+        let a = App::open(base.join("a")).unwrap();
+        for name in ["a:b", "a_b"] {
+            let id = a.create_profile(name, "french").unwrap();
+            a.add_sample(id, &tone).unwrap();
+        }
+        // « a:b » et « a_b » donnent le meme nom de dossier : la seconde voix ne doit pas ecraser la premiere.
+        let v = base.join("v");
+        let (one, two) = (a.export_into(&v, "a:b").unwrap(), a.export_into(&v, "a_b").unwrap());
+        assert_ne!(one, two);
+        assert_eq!((folder_voice_name(&one).as_deref(), folder_voice_name(&two).as_deref()), (Some("a:b"), Some("a_b")));
+        assert_eq!(a.export_into(&v, "a:b").unwrap(), one, "reexporter la meme voix reutilise son dossier");
+        // Un dossier illisible en premier (ordre alphabetique) n'empeche pas l'import des suivants.
+        fs::create_dir_all(base.join("v").join("0-casse")).unwrap();
+        let b = App::open(base.join("b")).unwrap();
+        let (done, _, errors) = b.import_voices_report(&base.join("v")).unwrap();
+        assert_eq!((done, errors.len()), (vec!["a:b".to_string(), "a_b".to_string()], 1));
+        drop((a, b));
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]

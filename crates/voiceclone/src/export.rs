@@ -71,6 +71,7 @@ pub fn stem(pcm: &[f32], cues: &[Cue], voice: &str) -> Vec<f32> {
     let mut out = vec![0.0; pcm.len()];
     for c in cues.iter().filter(|c| c.voice == voice) {
         let (a, b) = (((c.start * audio::SR as f64) as usize).min(pcm.len()), ((c.end * audio::SR as f64).ceil() as usize).min(pcm.len()));
+        let b = b.max(a); // chronologie incoherente (fin avant debut) : plage vide
         out[a..b].copy_from_slice(&pcm[a..b]);
     }
     out
@@ -126,6 +127,12 @@ mod tests {
         let b = stem(&pcm, &cues, "B");
         assert_eq!(b.iter().filter(|&&x| x != 0.0).count(), sr);
         assert_eq!(voices(&cues), ["A", "B"]);
+    }
+
+    #[test]
+    fn inconsistent_cues_do_not_panic() {
+        let pcm = vec![0.5f32; audio::SR as usize];
+        assert_eq!(stem(&pcm, &[cue("A", 0.8, 0.2, "x"), cue("A", 5.0, 9.0, "y")], "A").len(), pcm.len());
     }
 
     #[test]

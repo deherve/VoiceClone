@@ -27,7 +27,9 @@ pub fn is_known(file: &str) -> bool {
 pub fn download(url: &str, dest: &Path, cancel: &AtomicBool, progress: &dyn Fn(u64, u64)) -> R<()> {
     let part = PathBuf::from(format!("{}.part", dest.display()));
     let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-    let mut rq = ureq::get(url);
+    // Delais : sans eux, une connexion figee bloque le telechargement (et son annulation) indefiniment.
+    let agent = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(20)).timeout_read(std::time::Duration::from_secs(60)).build();
+    let mut rq = agent.get(url);
     if have > 0 {
         rq = rq.set("Range", &format!("bytes={have}-"));
     }

@@ -78,7 +78,11 @@ function playButton(kind, id, where) {
           b.closest('.gen')?.classList.remove('unheard');
           invoke('mark_heard', { id }).catch(() => {});
         }
-      } catch (e) { playingKey = null; fail(where, e); }
+      } catch (e) {
+        if (e?.name === 'AbortError') return; // un autre clic a pris la place : rien a signaler
+        if (playingKey === b.dataset.key) playingKey = null;
+        fail(where, e);
+      }
     }
     markPlaying();
   };
@@ -136,7 +140,7 @@ function sampleNotes() {
   const total = samples.reduce((s, x) => s + x.duration_sec, 0);
   const notes = [];
   if (!samples.length) notes.push(t('notes.none'));
-  for (const code of quality.voice_issues) notes.push(QMSG[code]());
+  for (const code of quality.voice_issues) notes.push(QMSG[code]?.() ?? code);
   if (samples.length && !quality.voice_issues.length && samples.every((s) => !(quality.samples[s.id]?.issues.length))) notes.push(t('q.good_voice'));
   if (total > WARN_AFTER_SEC) notes.push(t('notes.long', { total: fmt(total), limit: fmt(WARN_AFTER_SEC) }));
   $('sample-notes').textContent = notes.join(' ');
@@ -159,7 +163,7 @@ function qualityBlock(s) {
   if (!q) return '';
   return el('div', { className: 'q' },
     el('p', { className: 'q-metrics', textContent: t('q.metrics', { f0: q.f0 ?? '?', snr: q.snr_db, peak: q.peak }) }),
-    ...q.issues.map((code) => el('p', { className: 'q-issue', textContent: QMSG[code]() })),
+    ...q.issues.map((code) => el('p', { className: 'q-issue', textContent: QMSG[code]?.() ?? code })),
     ...(q.issues.length ? [] : [el('p', { className: 'q-ok', textContent: t('q.ok') })]));
 }
 
@@ -203,7 +207,7 @@ function showWriterVoices() {
   }));
 }
 async function openWriter() {
-  try { writerInstalled = (await invoke('writer_status')).installed; } catch { writerInstalled = false; }
+  try { const st = await invoke('writer_status'); writerInstalled = st.installed; writerSizeMb = st.size_mb; } catch { writerInstalled = false; }
   fillWriterOptions();
   $('w-lang').value = profile()?.language === 'english' ? 'en' : 'fr';
   $('w-voice-list').replaceChildren();
@@ -292,7 +296,6 @@ $('wr-remove').onclick = async () => {
 
 // ---------------------------------------------------------------- transcription automatique (Whisper)
 let trInstalled = false;
-let trSizeMb = 0;
 function transcribeButton(s, st) {
   const b = el('button', { type: 'button', className: 'ghost', textContent: t('sample.transcribe') });
   b.onclick = async () => {
@@ -308,7 +311,6 @@ function transcribeButton(s, st) {
 async function renderTranscribe() {
   const s = await invoke('transcribe_status');
   trInstalled = s.installed;
-  trSizeMb = s.size_mb;
   $('tr-state').textContent = s.installed ? t('tr.state_ok', { model: s.model_label }) : t('tr.state_missing', { size: size(s.size_mb) });
   $('tr-install').hidden = s.installed;
   $('tr-remove').hidden = !s.installed;
@@ -346,7 +348,9 @@ function drawPron() {
     to.oninput = () => { e[1] = to.value; };
     const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
     del.onclick = () => { pron.entries.splice(i, 1); drawPron(); };
-    return el('li', { className: 'pron-row' }, from, el('span', { textContent: '→', 'aria-hidden': 'true' }), to, del);
+    const arrow = el('span', { textContent: '→' });
+    arrow.setAttribute('aria-hidden', 'true');
+    return el('li', { className: 'pron-row' }, from, arrow, to, del);
   }));
 }
 async function renderPron() {
@@ -394,8 +398,17 @@ async function loadSamples() {
     const n = i + 1;
     const text = el('textarea', { value: s.ref_text, rows: 3, placeholder: t('sample.placeholder') });
     text.setAttribute('aria-label', t('sample.transcript_aria', { n }));
+    const qhost = el('div');
+    qhost.append(qualityBlock(s) || '');
     text.onchange = async () => {
-      try { await invoke('set_sample_text', { id: s.id, text: text.value }); await loadSamples(); say(st, t('sample.saved')); }
+      try {
+        await invoke('set_sample_text', { id: s.id, text: text.value });
+        s.ref_text = text.value;
+        await loadQuality(p);
+        qhost.replaceChildren(qualityBlock(s) || '');
+        sampleNotes();
+        say(st, t('sample.saved'));
+      }
       catch (e) { fail(st, e); }
     };
     const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
@@ -406,7 +419,7 @@ async function loadSamples() {
     };
     return el('li', { className: 'sample' },
       el('div', { className: 'row' }, el('span', { className: 'grow', textContent: t('sample.label', { n, dur: fmt(s.duration_sec) }) }), playButton('sample', s.id, st), transcribeButton(s, st), del),
-      text, qualityBlock(s));
+      text, qhost);
   }));
   markPlaying();
   sampleNotes();
@@ -448,7 +461,8 @@ $('rec').onclick = async () => {
   const script = readingText(p.language);
   const tick = () => { $('rec-label').textContent = t('samples.stop_rec', { time: fmt((Date.now() - t0) / 1000) }); };
   const timer = setInterval(tick, 500);
-  recorder = new MediaRecorder(stream);
+  try { recorder = new MediaRecorder(stream); }
+  catch (e) { clearInterval(timer); stream.getTracks().forEach((tr) => tr.stop()); fail(st, t('sample.mic_error', { msg: e.message })); return; }
   recorder.ondataavailable = (e) => chunks.push(e.data);
   recorder.onstop = async () => {
     stream.getTracks().forEach((tr) => tr.stop());
@@ -580,7 +594,7 @@ function updateGo() {
 
 async function generate() {
   const p = profile(), text = $('text').value.trim(), st = $('status');
-  if (busy || !p || !text) return;
+  if (busy || !p || !p.samples || !text) return;
   busy = true;
   updateGo();
   say(st, t('compose.generating'));
@@ -635,6 +649,8 @@ $('clear').onclick = () => {
   tx.select();
   if (!document.execCommand('delete')) tx.value = '';
   Object.assign(versions, { original: '', phonetic: '', source: null }); // les deux versions
+  textMode = 'original';
+  renderVersionSwitch();
   updateGo();
 };
 
@@ -670,8 +686,8 @@ async function copyText(text) {
 
 // Formes d'onde deja calculees : generation + version (originale ou amelioree) -> crêtes.
 const waves = new Map();
-async function drawBars(box, id, enhanced) {
-  const key = `${id}:${enhanced}`;
+async function drawBars(box, id, enhanced, stamp) {
+  const key = `${id}:${stamp}:${enhanced}`; // la date evite qu'un identifiant reutilise reprenne l'ancienne forme d'onde
   let peaks = waves.get(key);
   if (!peaks) {
     try { peaks = await invoke('waveform', { kind: 'generation', id }); waves.set(key, peaks); } catch { peaks = []; }
@@ -684,7 +700,7 @@ $('gen-clear').append(icon(...ICON_TRASH));
 $('gen-clear').onclick = async () => {
   if (!genTotal || !(await ask(t('gen.clear_confirm', { n: genTotal })))) return;
   if (playingKey?.startsWith('generation:')) $('player').pause();
-  try { await invoke('delete_all_generations'); await loadGenerations(); say($('status'), t('gen.cleared')); } catch (e) { fail($('status'), e); }
+  try { await invoke('delete_all_generations'); waves.clear(); await loadGenerations(); say($('status'), t('gen.cleared')); } catch (e) { fail($('status'), e); }
 };
 
 async function loadGenerations() {
@@ -734,7 +750,7 @@ async function loadGenerations() {
     del.setAttribute('aria-label', t('gen.delete'));
     del.onclick = async () => {
       if (!(await ask(t('gen.delete_confirm')))) return;
-      try { await invoke('delete_generation', { id: g.id }); await loadGenerations(); } catch (e) { fail(st, e); }
+      try { await invoke('delete_generation', { id: g.id }); waves.clear(); await loadGenerations(); } catch (e) { fail(st, e); }
     };
     const dl = (format) => {
       const b = el('button', { type: 'button', className: 'ghost', textContent: format.toUpperCase() });
@@ -753,7 +769,7 @@ async function loadGenerations() {
     const bars = el('div', { className: 'bars' });
     bars.dataset.key = `generation:${g.id}`;
     bars.setAttribute('aria-hidden', 'true');
-    drawBars(bars, g.id, g.enhanced);
+    drawBars(bars, g.id, g.enhanced, g.created_at);
     return el('li', { className: g.heard ? 'gen' : 'gen unheard' },
       el('div', { className: 'gen-top' }, el('p', { className: 'gen-text', textContent: g.text, title: g.text }), copy),
       el('div', { className: 'audio' },
@@ -778,7 +794,7 @@ function ask(msg) {
     d.returnValue = 'cancel';
     d.onclose = () => resolve(d.returnValue === 'ok');
     d.showModal();
-    $('ask-ok').focus();
+    d.querySelector('button[value="cancel"]').focus();
   });
 }
 
@@ -800,7 +816,7 @@ function renderTabs() {
     b.setAttribute('aria-selected', id === settingsTab);
     b.setAttribute('aria-controls', `tab-${id}`);
     b.tabIndex = id === settingsTab ? 0 : -1;
-    b.onclick = () => selectTab(id);
+    b.onclick = () => selectTab(id, true);
     b.onkeydown = (ev) => {
       const n = SETTINGS_TABS.length;
       const next = { ArrowRight: (i + 1) % n, ArrowDown: (i + 1) % n, ArrowLeft: (i + n - 1) % n, ArrowUp: (i + n - 1) % n, Home: 0, End: n - 1 }[ev.key];
@@ -878,7 +894,7 @@ function renderConnection() {
   const hasServer = !!c.server;
   $('conn-warn').hidden = hasServer;
   const server = c.server ?? 'voiceclone-server.exe';
-  const v = { url: c.url, server, voice: profiles[0]?.name ?? 'Zen', lang: t('conn.sample_lang'), sample: t('conn.sample'), downloads: c.downloads ?? '%USERPROFILE%\\Downloads' };
+  const v = { url: c.url, server, voice: profiles[0]?.name ?? 'Zen', lang: t('conn.sample_lang'), sample: t('conn.sample'), audios: c.audios ?? 'Audios' };
   const cli = (prefix, cmt) => [
     `${cmt} ${t('conn.cmt_std')}`, `${prefix}"${server}" speak "${v.sample}" --lang ${v.lang} --quality standard --voice "${v.voice}"`,
     `${cmt} ${t('conn.cmt_enh')}`, `${prefix}"${server}" speak "${v.sample}" --lang ${v.lang} --quality enhanced --voice "${v.voice}"`,

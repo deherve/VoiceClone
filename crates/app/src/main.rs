@@ -66,6 +66,110 @@ fn generations(app: Core<'_>) -> R<Value> {
     app.list_generations(200)
 }
 
+static TRANSCRIBE_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WRITER_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false); // installation
+static WRITE_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false); // generation
+
+#[tauri::command]
+fn writer_status(app: Core<'_>) -> Value {
+    voiceclone::writer::status(&app.data_dir())
+}
+
+/// Installe l'assistant d'ecriture (moteur + modele) ; progression : evenement "writer-progress" {stage, done, total}.
+#[tauri::command]
+async fn writer_install(app: Core<'_>, handle: tauri::AppHandle) -> R<()> {
+    let data = app.data_dir();
+    WRITER_CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || {
+        voiceclone::writer::install(&data, &WRITER_CANCEL, &|stage, done, total| {
+            let _ = handle.emit("writer-progress", json!({"stage": stage, "done": done, "total": total}));
+        })
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+#[tauri::command]
+fn writer_cancel_install() {
+    WRITER_CANCEL.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn writer_remove(app: Core<'_>) -> R<()> {
+    voiceclone::writer::remove(&app.data_dir())
+}
+
+/// Ecrit un recit ou un dialogue : `mode` « dialogue » ou « story », `language` « fr » ou « en », `seconds` : duree visee a voix haute,
+/// `tone` : natural, warm, cheerful, dramatic, funny ou calm, `voices` : noms des voix. Progression : evenement "write-progress".
+#[tauri::command]
+async fn write_text(app: Core<'_>, handle: tauri::AppHandle, prompt: String, mode: String, language: String, seconds: u32, tone: String, voices: Vec<String>) -> R<String> {
+    let data = app.data_dir();
+    WRITE_CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || {
+        let req = voiceclone::writer::Request {
+            prompt,
+            mode: if mode == "dialogue" { voiceclone::writer::Mode::Dialogue } else { voiceclone::writer::Mode::Story },
+            language,
+            seconds: seconds.clamp(15, voiceclone::writer::MAX_SECONDS),
+            tone: voiceclone::writer::Tone::parse(&tone),
+            voices,
+        };
+        voiceclone::writer::generate(&data, &req, &WRITE_CANCEL, &|part, parts, text| {
+            let _ = handle.emit("write-progress", json!({"part": part, "parts": parts, "text": text}));
+        })
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+/// Nombre de mots ecrits pour une duree et un ton (affiche dans la fenetre d'ecriture).
+#[tauri::command]
+fn write_estimate(seconds: u32, tone: String) -> Value {
+    let seconds = seconds.clamp(15, voiceclone::writer::MAX_SECONDS);
+    json!({"seconds": seconds, "words": voiceclone::writer::words_for(seconds, voiceclone::writer::Tone::parse(&tone))})
+}
+
+#[tauri::command]
+fn write_cancel() {
+    WRITE_CANCEL.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn transcribe_status(app: Core<'_>) -> Value {
+    voiceclone::transcribe::status(&app.data_dir())
+}
+
+/// Installe Whisper (programme + modele) ; progression par l'evenement "transcribe-progress" {stage, done, total}.
+#[tauri::command]
+async fn transcribe_install(app: Core<'_>, handle: tauri::AppHandle) -> R<()> {
+    let data = app.data_dir();
+    TRANSCRIBE_CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || {
+        voiceclone::transcribe::install(&data, &TRANSCRIBE_CANCEL, &|stage, done, total| {
+            let _ = handle.emit("transcribe-progress", json!({"stage": stage, "done": done, "total": total}));
+        })
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+#[tauri::command]
+fn transcribe_cancel() {
+    TRANSCRIBE_CANCEL.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn transcribe_remove(app: Core<'_>) -> R<()> {
+    voiceclone::transcribe::remove(&app.data_dir())
+}
+
+/// Transcrit un echantillon et enregistre le texte ; retourne ce texte.
+#[tauri::command]
+async fn transcribe_sample(app: Core<'_>, id: i64) -> R<String> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || app.transcribe_sample(id)).await.map_err(|x| x.to_string())?
+}
+
 /// Analyse de qualite des echantillons d'une voix (assistant de qualite).
 #[tauri::command]
 fn voice_quality(app: Core<'_>, profile_id: i64) -> R<Value> {
@@ -289,6 +393,68 @@ async fn download(app: Core<'_>, id: i64, format: String) -> R<Option<String>> {
     .map_err(|x| x.to_string())?
 }
 
+/// Sous-titres .srt de la generation : boite « Enregistrer sous » ; `None` si annulee.
+#[tauri::command]
+async fn download_srt(app: Core<'_>, id: i64) -> R<Option<String>> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = app.export_name(id, "srt")?;
+        let start = app.export_dir().or_else(|| std::env::var_os("USERPROFILE").map(|h| std::path::Path::new(&h).join("Downloads")));
+        let mut dialog = rfd::FileDialog::new().set_title(tr!("Enregistrer les sous-titres", "Save the subtitles")).set_file_name(name).add_filter("SRT", &["srt"]);
+        if let Some(dir) = start {
+            dialog = dialog.set_directory(dir);
+        }
+        let Some(chosen) = dialog.save_file() else { return Ok(None) };
+        let path = app.export_srt_to(id, &chosen)?;
+        if let Some(dir) = path.parent() {
+            app.remember_export_dir(dir)?;
+        }
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+/// Une piste WAV par voix et les sous-titres, dans un dossier choisi ; retourne ce dossier (`None` si annule).
+#[tauri::command]
+async fn export_stems(app: Core<'_>, id: i64) -> R<Option<String>> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let start = app.export_dir().or_else(|| std::env::var_os("USERPROFILE").map(|h| std::path::Path::new(&h).join("Downloads")));
+        let mut dialog = rfd::FileDialog::new().set_title(tr!("Choisir le dossier des pistes", "Choose the folder for the tracks"));
+        if let Some(dir) = start {
+            dialog = dialog.set_directory(dir);
+        }
+        let Some(dir) = dialog.pick_folder() else { return Ok(None) };
+        app.export_stems_to(id, &dir)?;
+        app.remember_export_dir(&dir)?;
+        Ok(Some(dir.display().to_string()))
+    })
+    .await
+    .map_err(|x| x.to_string())?
+}
+
+/// Version phonetique d'un texte : {supported, text}. Seul le francais est gere.
+#[tauri::command]
+fn phoneticize(app: Core<'_>, text: String, language: String) -> Value {
+    match app.phoneticize(&text, &language) {
+        Some(t) => json!({"supported": true, "text": t}),
+        None => json!({"supported": false, "text": text}),
+    }
+}
+
+/// Dictionnaire de prononciation et option « nombres en toutes lettres ».
+#[tauri::command]
+fn pronunciations(app: Core<'_>) -> Value {
+    json!({"entries": app.pronunciations(), "numbers": app.numbers_words()})
+}
+
+#[tauri::command]
+fn set_pronunciations(app: Core<'_>, entries: Vec<(String, String)>, numbers: bool) -> R<()> {
+    app.set_pronunciations(&entries)?;
+    app.set_numbers_words(numbers)
+}
+
 /// Montre le fichier d'une generation dans l'Explorateur.
 #[tauri::command]
 fn reveal(app: Core<'_>, id: i64) -> R<()> {
@@ -390,7 +556,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
-            connection_info, open_audios_dir, mark_heard, voice_quality, voices_info, export_voice, export_all_voices, import_voices, open_voices_dir, delete_all_generations, get_lang, set_lang, app_version, check_update, install_update, update_log, open_release, open_official, components, install_component, cancel_component,
+            connection_info, open_audios_dir, mark_heard, voice_quality, write_estimate, writer_status, writer_install, writer_cancel_install, writer_remove, write_text, write_cancel, download_srt, export_stems, phoneticize, pronunciations, set_pronunciations, transcribe_status, transcribe_install, transcribe_cancel, transcribe_remove, transcribe_sample, voices_info, export_voice, export_all_voices, import_voices, open_voices_dir, delete_all_generations, get_lang, set_lang, app_version, check_update, install_update, update_log, open_release, open_official, components, install_component, cancel_component,
             models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())

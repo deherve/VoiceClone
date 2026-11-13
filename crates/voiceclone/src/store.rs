@@ -74,7 +74,24 @@ impl Store {
         if !multi {
             c.execute("ALTER TABLE generations ADD COLUMN multi INTEGER NOT NULL DEFAULT 0", []).map_err(e)?;
         }
+        // Migration : chronologie (qui parle, quand, quel texte) pour les sous-titres et les pistes par voix.
+        let timeline = c
+            .prepare("SELECT 1 FROM pragma_table_info('generations') WHERE name='timeline'")
+            .and_then(|mut s| s.exists([]))
+            .map_err(e)?;
+        if !timeline {
+            c.execute("ALTER TABLE generations ADD COLUMN timeline TEXT", []).map_err(e)?;
+        }
         Ok(Store(c))
+    }
+
+    pub fn set_timeline(&self, id: i64, json: &str) -> R<()> {
+        self.0.execute("UPDATE generations SET timeline=?2 WHERE id=?1", params![id, json]).map(|_| ()).map_err(e)
+    }
+
+    /// Chronologie JSON de la generation (`None` : generation d'avant cette fonction).
+    pub fn timeline(&self, id: i64) -> R<Option<String>> {
+        self.0.query_row("SELECT timeline FROM generations WHERE id=?1", [id], |r| r.get(0)).map_err(|_| tr!("génération introuvable", "generation not found"))
     }
 
     pub fn set_multi(&self, id: i64) -> R<()> {
@@ -202,7 +219,7 @@ impl Store {
     pub fn list_generations(&self, limit: i64) -> R<Value> {
         let mut st = self.0
             .prepare(
-                "SELECT g.id,p.name,g.text,COALESCE(g.enhanced_path,g.audio_path),g.duration,g.seed,g.created_at,g.enhanced_path IS NOT NULL,g.heard,g.multi FROM generations g
+                "SELECT g.id,p.name,g.text,COALESCE(g.enhanced_path,g.audio_path),g.duration,g.seed,g.created_at,g.enhanced_path IS NOT NULL,g.heard,g.multi,g.timeline IS NOT NULL FROM generations g
                  LEFT JOIN profiles p ON p.id=g.profile_id ORDER BY g.id DESC LIMIT ?1",
             )
             .map_err(e)?;
@@ -210,7 +227,7 @@ impl Store {
             .query_map(params![limit.clamp(1, 500)], |r| {
                 Ok(json!({"id": r.get::<_, i64>(0)?, "profile": r.get::<_, Option<String>>(1)?, "text": r.get::<_, String>(2)?,
                     "path": r.get::<_, String>(3)?, "duration_sec": r.get::<_, f64>(4)?, "seed": r.get::<_, i64>(5)?, "created_at": r.get::<_, String>(6)?,
-                    "enhanced": r.get::<_, bool>(7)?, "heard": r.get::<_, bool>(8)?, "multi": r.get::<_, bool>(9)?}))
+                    "enhanced": r.get::<_, bool>(7)?, "heard": r.get::<_, bool>(8)?, "multi": r.get::<_, bool>(9)?, "has_timeline": r.get::<_, bool>(10)?}))
             })
             .map_err(e)?;
         Ok(Value::Array(rows.collect::<Result<_, _>>().map_err(e)?))

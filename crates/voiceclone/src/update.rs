@@ -141,7 +141,7 @@ pub fn stage(asset: &Value, data_dir: &Path, cancel: &AtomicBool, progress: &dyn
 }
 
 /// Decompresse sans jamais sortir de `out` (chemins verifies par `enclosed_name`), avec une limite de taille.
-fn unpack(zip_path: &Path, out: &Path) -> R<()> {
+pub(crate) fn unpack(zip_path: &Path, out: &Path) -> R<()> {
     let mut z = zip::ZipArchive::new(fs::File::open(zip_path).map_err(e)?).map_err(e)?;
     if z.len() > 500 {
         return Err(tr!("archive de mise à jour refusée", "update archive refused"));

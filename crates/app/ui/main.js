@@ -163,6 +163,224 @@ function qualityBlock(s) {
     ...(q.issues.length ? [] : [el('p', { className: 'q-ok', textContent: t('q.ok') })]));
 }
 
+// ---------------------------------------------------------------- assistant d'ecriture (IA locale)
+let writerInstalled = false;
+let writerBusy = false;
+const WRITE_TONES = { natural: () => t('wr.tone_natural'), warm: () => t('wr.tone_warm'), cheerful: () => t('wr.tone_cheerful'), dramatic: () => t('wr.tone_dramatic'), funny: () => t('wr.tone_funny'), calm: () => t('wr.tone_calm') };
+const writerSeconds = () => Math.min(7200, Math.max(15, Math.round((Number($('w-minutes').value) || 1) * 60)));
+async function updateWriterEstimate() {
+  try {
+    const r = await invoke('write_estimate', { seconds: writerSeconds(), tone: $('w-tone').value });
+    $('w-estimate').textContent = t(r.words > 280 ? 'wr.estimate_parts' : 'wr.estimate', { dur: fmt(r.seconds), words: r.words });
+  } catch { $('w-estimate').textContent = ''; }
+}
+function insertAtCursor(text) {
+  const tx = $('text'), a = tx.selectionStart ?? tx.value.length, b = tx.selectionEnd ?? a;
+  const before = tx.value.slice(0, a), pad = before && !before.endsWith('\n') ? '\n' : '';
+  tx.setRangeText(`${pad}${text}\n`, a, b, 'end');
+  tx.focus();
+  tx.dispatchEvent(new Event('input'));
+}
+function fillWriterOptions() {
+  const keep = (id) => $(id).value;
+  const [mode, lang, tone] = [keep('w-mode'), keep('w-lang'), keep('w-tone')];
+  $('w-mode').replaceChildren(el('option', { value: 'dialogue', textContent: t('wr.mode_dialogue') }), el('option', { value: 'story', textContent: t('wr.mode_story') }));
+  $('w-lang').replaceChildren(el('option', { value: 'fr', textContent: t('lang.ui.fr') }), el('option', { value: 'en', textContent: t('lang.ui.en') }));
+  $('w-tone').replaceChildren(...Object.entries(WRITE_TONES).map(([value, label]) => el('option', { value, textContent: label() })));
+  if (mode) $('w-mode').value = mode;
+  if (lang) $('w-lang').value = lang;
+  $('w-tone').value = tone || 'natural';
+}
+function showWriterVoices() {
+  const dialogue = $('w-mode').value === 'dialogue';
+  $('w-voices').hidden = !dialogue;
+  if (!dialogue) return;
+  const checked = new Set([...document.querySelectorAll('#w-voice-list input:checked')].map((i) => i.value));
+  const first = !document.querySelector('#w-voice-list input');
+  $('w-voice-list').replaceChildren(...profiles.map((p) => {
+    const box = el('input', { type: 'checkbox', value: p.name, checked: first || checked.has(p.name) });
+    return paint(el('label', { className: 'inline vc' }, box, el('span', { textContent: p.name })), p);
+  }));
+}
+async function openWriter() {
+  try { writerInstalled = (await invoke('writer_status')).installed; } catch { writerInstalled = false; }
+  fillWriterOptions();
+  $('w-lang').value = profile()?.language === 'english' ? 'en' : 'fr';
+  $('w-voice-list').replaceChildren();
+  showWriterVoices();
+  refreshWriterDialog();
+  updateWriterEstimate();
+  say($('w-status'), '');
+  $('writer').showModal();
+  (writerInstalled ? $('w-prompt') : $('w-install')).focus();
+}
+function refreshWriterDialog() {
+  $('w-missing').hidden = writerInstalled;
+  $('w-main').hidden = !writerInstalled;
+  for (const id of ['w-generate', 'w-insert', 'w-replace']) $(id).hidden = !writerInstalled;
+  $('w-missing-text').textContent = t('wr.missing', { size: size(writerSizeMb) });
+  const has = !!$('w-result').value.trim();
+  $('w-insert').disabled = !has;
+  $('w-replace').disabled = !has;
+  $('w-generate').textContent = has ? t('wr.regenerate') : t('wr.generate');
+}
+$('w-mode').onchange = showWriterVoices;
+$('w-tone').onchange = updateWriterEstimate;
+$('w-minutes').oninput = updateWriterEstimate;
+$('w-result').oninput = refreshWriterDialog;
+$('w-generate').onclick = async () => {
+  if (writerBusy) return;
+  const st = $('w-status'), dialogue = $('w-mode').value === 'dialogue';
+  const voices = [...document.querySelectorAll('#w-voice-list input:checked')].map((i) => i.value);
+  if (!$('w-prompt').value.trim()) { fail(st, t('wr.need_prompt')); return; }
+  if (dialogue && voices.length < 2) { fail(st, t('wr.need_two')); return; }
+  writerBusy = true;
+  $('w-result').value = '';
+  $('w-generate').disabled = true;
+  $('w-stop').hidden = false;
+  say(st, t('wr.working'));
+  try {
+    const text = await invoke('write_text', { prompt: $('w-prompt').value, mode: dialogue ? 'dialogue' : 'story', language: $('w-lang').value, seconds: writerSeconds(), tone: $('w-tone').value, voices });
+    $('w-result').value = text;
+    say(st, t('wr.ready'));
+  } catch (e) { fail(st, $('w-result').value.trim() ? `${e?.message ?? e} ${t('wr.partial')}` : e); }
+  writerBusy = false;
+  $('w-generate').disabled = false;
+  $('w-stop').hidden = true;
+  refreshWriterDialog();
+};
+$('w-stop').onclick = () => invoke('write_cancel');
+$('w-insert').onclick = () => { insertAtCursor($('w-result').value.trim()); $('writer').close(); };
+$('w-replace').onclick = () => {
+  const tx = $('text');
+  tx.value = $('w-result').value.trim();
+  Object.assign(versions, { original: tx.value, phonetic: '', source: null });
+  if (textMode === 'phonetic') { textMode = 'original'; renderVersionSwitch(); }
+  tx.dispatchEvent(new Event('input'));
+  $('writer').close();
+};
+$('writer').addEventListener('close', () => { if (writerBusy) invoke('write_cancel'); });
+
+let writerSizeMb = 0;
+async function renderWriter() {
+  const s = await invoke('writer_status');
+  writerInstalled = s.installed;
+  writerSizeMb = s.size_mb;
+  $('wr-state').textContent = s.installed ? t('wr.state_ok', { model: s.model_label }) : t('wr.state_missing', { size: size(s.size_mb) });
+  $('wr-install').hidden = s.installed;
+  $('wr-remove').hidden = !s.installed;
+}
+async function installWriter(statusEl) {
+  if (!(await ask(t('wr.confirm')))) return;
+  for (const id of ['wr-install', 'w-install']) $(id).disabled = true;
+  $('wr-cancel').hidden = false;
+  for (const id of ['wr-bar', 'w-bar']) { $(id).hidden = false; $(id).value = 0; }
+  try { await invoke('writer_install'); say(statusEl, t('wr.done')); } catch (e) { fail(statusEl, e); }
+  for (const id of ['wr-install', 'w-install']) $(id).disabled = false;
+  $('wr-cancel').hidden = true;
+  for (const id of ['wr-bar', 'w-bar']) $(id).hidden = true;
+  await renderWriter();
+  refreshWriterDialog();
+}
+$('wr-install').onclick = () => installWriter($('wr-status'));
+$('w-install').onclick = () => installWriter($('w-status'));
+$('wr-cancel').onclick = () => invoke('writer_cancel_install');
+$('wr-remove').onclick = async () => {
+  if (!(await ask(t('wr.remove_confirm')))) return;
+  try { await invoke('writer_remove'); say($('wr-status'), t('wr.removed')); await renderWriter(); } catch (e) { fail($('wr-status'), e); }
+};
+
+// ---------------------------------------------------------------- transcription automatique (Whisper)
+let trInstalled = false;
+let trSizeMb = 0;
+function transcribeButton(s, st) {
+  const b = el('button', { type: 'button', className: 'ghost', textContent: t('sample.transcribe') });
+  b.onclick = async () => {
+    if (!trInstalled) { show('settings'); selectTab('models'); say($('tr-status'), t('tr.need')); return; }
+    if (s.ref_text.trim() && !(await ask(t('sample.transcribe_confirm')))) return;
+    b.disabled = true;
+    say(st, t('sample.transcribing'));
+    try { await invoke('transcribe_sample', { id: s.id }); await loadSamples(); say($('sample-status'), t('sample.transcribed')); }
+    catch (e) { b.disabled = false; fail(st, e); }
+  };
+  return b;
+}
+async function renderTranscribe() {
+  const s = await invoke('transcribe_status');
+  trInstalled = s.installed;
+  trSizeMb = s.size_mb;
+  $('tr-state').textContent = s.installed ? t('tr.state_ok', { model: s.model_label }) : t('tr.state_missing', { size: size(s.size_mb) });
+  $('tr-install').hidden = s.installed;
+  $('tr-remove').hidden = !s.installed;
+}
+$('tr-install').onclick = async () => {
+  const st = $('tr-status'), bar = $('tr-bar');
+  if (!(await ask(t('tr.confirm')))) return;
+  $('tr-install').disabled = true;
+  $('tr-cancel').hidden = false;
+  bar.hidden = false;
+  bar.value = 0;
+  try { await invoke('transcribe_install'); say(st, t('tr.done')); }
+  catch (e) { fail(st, e); }
+  $('tr-install').disabled = false;
+  $('tr-cancel').hidden = true;
+  bar.hidden = true;
+  await renderTranscribe();
+};
+$('tr-cancel').onclick = () => invoke('transcribe_cancel');
+$('tr-remove').onclick = async () => {
+  if (!(await ask(t('tr.remove_confirm')))) return;
+  try { await invoke('transcribe_remove'); say($('tr-status'), t('tr.removed')); await renderTranscribe(); } catch (e) { fail($('tr-status'), e); }
+};
+
+// ---------------------------------------------------------------- parametres : prononciation
+let pron = { entries: [], numbers: true };
+function drawPron() {
+  $('pr-numbers').checked = pron.numbers;
+  $('pr-list').replaceChildren(...pron.entries.map((e, i) => {
+    const from = el('input', { value: e[0], maxLength: 60, placeholder: t('pr.from') });
+    const to = el('input', { value: e[1], maxLength: 200, placeholder: t('pr.to') });
+    from.setAttribute('aria-label', t('pr.from'));
+    to.setAttribute('aria-label', t('pr.to'));
+    from.oninput = () => { e[0] = from.value; };
+    to.oninput = () => { e[1] = to.value; };
+    const del = el('button', { type: 'button', className: 'ghost danger', textContent: t('common.delete') });
+    del.onclick = () => { pron.entries.splice(i, 1); drawPron(); };
+    return el('li', { className: 'pron-row' }, from, el('span', { textContent: '→', 'aria-hidden': 'true' }), to, del);
+  }));
+}
+async function renderPron() {
+  const p = await invoke('pronunciations');
+  pron = { entries: p.entries.map(([a, b]) => [a, b]), numbers: p.numbers };
+  drawPron();
+}
+$('pr-add').onclick = () => { pron.entries.push(['', '']); drawPron(); };
+$('pr-save').onclick = async () => {
+  const st = $('pr-status');
+  try {
+    await invoke('set_pronunciations', { entries: pron.entries.filter((e) => e[0].trim()), numbers: $('pr-numbers').checked });
+    await renderPron();
+    say(st, t('pr.saved'));
+  } catch (e) { fail(st, e); }
+};
+
+// ---------------------------------------------------------------- export pour le montage (sous-titres, pistes par voix)
+function montageButtons(g, st) {
+  if (!g.has_timeline) return [];
+  const mk = (label, cmd, tip, done) => {
+    const b = el('button', { type: 'button', className: 'ghost', textContent: label, title: tip });
+    b.onclick = async () => {
+      b.disabled = true;
+      try { const r = await invoke(cmd, { id: g.id }); say(st, r ? done(r) : t('gen.cancelled')); } catch (e) { fail(st, e); }
+      b.disabled = false;
+    };
+    return b;
+  };
+  const out = [mk('SRT', 'download_srt', t('gen.srt_tip'), (path) => t('gen.srt_saved', { path }))];
+  if (g.multi) out.push(mk(t('gen.stems'), 'export_stems', t('gen.stems_tip'), (path) => t('gen.stems_saved', { path })));
+  return out;
+}
+
 async function loadSamples() {
   const p = profile();
   $('samples-panel').hidden = !p;
@@ -170,6 +388,7 @@ async function loadSamples() {
   $('samples-title').textContent = t('samples.title', { name: p.name });
   samples = await invoke('samples', { profileId: p.id });
   await loadQuality(p);
+  try { trInstalled = (await invoke('transcribe_status')).installed; } catch { trInstalled = false; }
   const st = $('sample-status');
   $('sample-list').replaceChildren(...samples.map((s, i) => {
     const n = i + 1;
@@ -186,7 +405,7 @@ async function loadSamples() {
       try { await invoke('delete_sample', { id: s.id }); await loadProfiles(); } catch (e) { fail(st, e); }
     };
     return el('li', { className: 'sample' },
-      el('div', { className: 'row' }, el('span', { className: 'grow', textContent: t('sample.label', { n, dur: fmt(s.duration_sec) }) }), playButton('sample', s.id, st), del),
+      el('div', { className: 'row' }, el('span', { className: 'grow', textContent: t('sample.label', { n, dur: fmt(s.duration_sec) }) }), playButton('sample', s.id, st), transcribeButton(s, st), del),
       text, qualityBlock(s));
   }));
   markPlaying();
@@ -311,20 +530,52 @@ function insertTag(tag) {
   tx.dispatchEvent(new Event('input'));
 }
 function renderTags() {
+  const write = el('button', { type: 'button', className: 'tag write', title: t('wr.tip'), onclick: () => openWriter() });
+  write.setAttribute('aria-label', t('wr.tip'));
+  write.append(icon('M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z', 'M19 15l.7 2.1L22 18l-2.3.9L19 21l-.7-2.1L16 18l2.3-.9z'));
   $('tags').replaceChildren(
+    write,
     el('button', { type: 'button', className: 'tag pause', textContent: t('tags.pause'), title: t('tags.pause_tip'), onclick: () => insertTag('[pause]') }),
     ...profiles.map((p) => paint(el('button', { type: 'button', className: 'tag voice vc', textContent: p.name, title: t('tags.voice_tip', { name: p.name }), onclick: () => insertTag(`[${p.name}]`) }), p)));
   renderHighlight();
 }
 
 // ---------------------------------------------------------------- generation
+// Estimations affichees sous la zone de texte. Lecture : environ 185 mots par minute (debit mesure avec la voix de
+// synthese) plus les pauses demandees. Generation : le rapport duree de calcul / duree d'audio de la derniere generation
+// de cette machine (0,25 au depart : mesure sur une carte graphique milieu de gamme).
+const SPEECH_WPM = 185;
+const GEN_RATIO_KEY = 'voiceclone-gen-ratio';
+function textStats(text) {
+  let pauses = 0;
+  const body = text.replace(/\[[^\]\n[]{1,60}\]/g, (tag) => {
+    const m = tag.slice(1, -1).trim().match(/^pause(?:\s+([\d.,]+)\s*s?)?$/i);
+    if (m) pauses += Math.min(30, parseFloat((m[1] ?? '1').replace(',', '.')) || 1);
+    return ' ';
+  });
+  const words = (body.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) ?? []).length;
+  return { words, speech: (words / SPEECH_WPM) * 60 + pauses, tagged: body.length !== text.length && /\[(?!pause)/i.test(text) };
+}
+function fmtLong(sec) {
+  if (sec < 90) return t('dur.sec', { n: Math.max(1, Math.round(sec)) });
+  if (sec < 3600) return t('dur.min', { n: Math.round(sec / 60) });
+  const h = Math.floor(sec / 3600);
+  return t('dur.hour', { h, m: Math.round((sec % 3600) / 60) });
+}
 function updateGo() {
-  const p = profile(), n = $('text').value.trim().length;
+  const p = profile(), text = $('text').value, n = text.trim().length;
   $('go').disabled = busy || !p || !p.samples || !n;
-  $('clear').disabled = !$('text').value;
-  $('count').replaceChildren(...(p
-    ? [voiceAvatar(p), tp('compose.line', { name: p.name, n })]
-    : [t('compose.no_voice')]));
+  $('clear').disabled = !text;
+  const parts = [];
+  const st = n ? textStats(text) : null;
+  // La voix n'est indiquee que si tout le texte est dit par elle ; avec des balises de voix, ce serait trompeur.
+  if (!p) parts.push(t('compose.no_voice'));
+  else if (!st?.tagged) parts.push(voiceAvatar(p), t('compose.voice', { name: p.name }));
+  if (st) {
+    const ratio = Number(lsGet(GEN_RATIO_KEY)) || 0.25;
+    parts.push(t('compose.stats', { chars: n.toLocaleString(LANG), words: st.words.toLocaleString(LANG), dur: fmtLong(st.speech), gen: fmtLong(st.speech * ratio) }));
+  }
+  $('count').replaceChildren(...parts);
 }
 
 async function generate() {
@@ -335,6 +586,7 @@ async function generate() {
   say(st, t('compose.generating'));
   try {
     const r = await invoke('speak', { text, profile: p.name });
+    if (r.duration_sec > 5 && r.elapsed_sec > 0) lsSet(GEN_RATIO_KEY, String(Math.round((r.elapsed_sec / r.duration_sec) * 1000) / 1000)); // calibre l'estimation sur cette machine
     say(st, [t('compose.done', { dur: fmt(r.duration_sec), s: r.elapsed_sec }), ...(r.warnings ?? [])].join(' '));
     if (r.warnings?.length) st.classList.add('error');
   } catch (e) { fail(st, e); }
@@ -344,12 +596,45 @@ async function generate() {
 $('go').onclick = generate;
 $('text').oninput = updateGo;
 $('text').onkeydown = (ev) => { if (ev.ctrlKey && ev.key === 'Enter') generate(); };
+// ---------------------------------------------------------------- version du texte : original ou phonetique
+// Le texte est garde sous deux versions ; la zone de saisie montre l'une des deux et c'est elle qui est generee.
+// La version phonetique est calculee depuis l'original (et gardee, corrections a la main comprises, tant que
+// l'original ne change pas).
+const versions = { original: '', phonetic: '', source: null };
+let textMode = 'original';
+function renderVersionSwitch() {
+  $('tv-original').setAttribute('aria-pressed', textMode === 'original');
+  $('tv-phonetic').setAttribute('aria-pressed', textMode === 'phonetic');
+}
+async function switchVersion(mode) {
+  if (mode === textMode) return;
+  const tx = $('text'), st = $('status');
+  versions[textMode] = tx.value;
+  if (mode === 'phonetic' && versions.source !== versions.original) {
+    try {
+      const r = await invoke('phoneticize', { text: versions.original, language: profile()?.language ?? 'auto' });
+      if (!r.supported) { say(st, t('pv.unsupported')); return; }
+      versions.phonetic = r.text;
+      versions.source = versions.original;
+      say(st, t('pv.ready'));
+    } catch (e) { fail(st, e); return; }
+  }
+  textMode = mode;
+  tx.value = versions[mode];
+  renderVersionSwitch();
+  updateGo();
+  renderHighlight();
+}
+$('tv-original').onclick = () => switchVersion('original');
+$('tv-phonetic').onclick = () => switchVersion('phonetic');
+
 // Efface par une commande d'edition : Ctrl+Z ramene le texte (une affectation de .value l'effacerait pour de bon).
 $('clear').onclick = () => {
   const tx = $('text');
   tx.focus();
   tx.select();
   if (!document.execCommand('delete')) tx.value = '';
+  Object.assign(versions, { original: '', phonetic: '', source: null }); // les deux versions
   updateGo();
 };
 
@@ -479,7 +764,7 @@ async function loadGenerations() {
             ? el('span', { className: 'voice multi', textContent: t('gen.voice', { name: t('gen.multiple') }) })
             : paint(el('span', { className: 'voice vc', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }), profiles.find((p) => p.name === g.profile)),
           g.created_at.slice(0, 16)),
-        el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), del)));
+        el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), ...montageButtons(g, st), del)));
   }));
   if (!list.length) $('gen-list').append(el('li', { className: 'empty', textContent: t('gen.empty') }));
   markPlaying();
@@ -498,7 +783,7 @@ function ask(msg) {
 }
 
 // ---------------------------------------------------------------- parametres : onglets
-const TAB_LABELS = { interface: () => t('tab.interface'), voices: () => t('tab.voices'), connect: () => t('tab.connect'), audios: () => t('tab.audios'), models: () => t('tab.models'), gpu: () => t('tab.gpu'), updates: () => t('tab.updates') };
+const TAB_LABELS = { interface: () => t('tab.interface'), voices: () => t('tab.voices'), text: () => t('tab.text'), connect: () => t('tab.connect'), audios: () => t('tab.audios'), models: () => t('tab.models'), gpu: () => t('tab.gpu'), updates: () => t('tab.updates') };
 const SETTINGS_TABS = Object.keys(TAB_LABELS);
 let settingsTab = 'interface';
 try { const saved = localStorage.getItem('vc-settings-tab'); if (SETTINGS_TABS.includes(saved)) settingsTab = saved; } catch { /* stockage indisponible */ }
@@ -862,6 +1147,9 @@ $('vx-open').onclick = () => invoke('open_voices_dir').catch((e) => fail($('vx-s
 
 function loadSettings() {
   renderVoicesTab();
+  renderPron().catch((e) => fail($('pr-status'), e));
+  renderTranscribe().catch((e) => fail($('tr-status'), e));
+  renderWriter().catch((e) => fail($('wr-status'), e));
   renderUpdate();
   loadConnection().catch((e) => fail($('conn-status'), e));
   loadModels().catch((e) => fail($('models-status'), e));
@@ -906,6 +1194,20 @@ async function renderAll() {
       const bar = document.querySelector(`progress[data-file="${p.file}"]`), pct = document.querySelector(`[data-pct="${p.file}"]`);
       if (bar) bar.value = percent(p);
       if (pct) pct.textContent = t('models.progress', { pct: percent(p), done: size(Math.round(p.done / 1048576)), total: size(Math.round(p.total / 1048576)) });
+    });
+    await listen('write-progress', ({ payload: p }) => {
+      if (p.parts > 1) say($('w-status'), p.part === 0 ? t('wr.planning') : t('wr.part', { part: p.part, parts: p.parts }));
+      if (p.text) { $('w-result').value = p.text; refreshWriterDialog(); } // le texte deja ecrit reste visible, meme si la suite echoue
+    });
+    await listen('writer-progress', ({ payload: p }) => {
+      for (const id of ['wr-bar', 'w-bar']) $(id).value = percent(p);
+      const msg = p.stage === 'bin' ? t('wr.stage_bin', { pct: percent(p) }) : t('wr.stage_model', { pct: percent(p) });
+      say($('wr-status'), msg);
+      say($('w-status'), msg);
+    });
+    await listen('transcribe-progress', ({ payload: p }) => {
+      $('tr-bar').value = percent(p);
+      say($('tr-status'), p.stage === 'cli' ? t('tr.stage_cli', { pct: percent(p) }) : t('tr.stage_model', { pct: percent(p) }));
     });
     await listen('update-progress', ({ payload: p }) => {
       $('upd-progress').value = percent(p);

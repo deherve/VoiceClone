@@ -134,6 +134,36 @@ fn run() -> R<()> {
             }
             Ok(())
         }
+        Some("write") => {
+            // voiceclone-server write <dialogue|recit> "<demande>" [fr|en] [secondes] [ton] [voix1,voix2,...]
+            let (mode, prompt) = (args.get(2).map(String::as_str), args.get(3));
+            let (Some(mode), Some(prompt)) = (mode, prompt) else {
+                return Err(tr!("usage : voiceclone-server write <dialogue|recit> \"demande\" [fr|en] [secondes] [ton] [voix1,voix2]", "usage: voiceclone-server write <dialogue|story> \"request\" [fr|en] [seconds] [tone] [voice1,voice2]"));
+            };
+            let app = App::open(dir.clone())?;
+            let voices: Vec<String> = match args.get(7) {
+                Some(list) => list.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect(),
+                None => app.list_profiles()?.as_array().into_iter().flatten().filter_map(|p| p["name"].as_str().map(String::from)).collect(),
+            };
+            let req = voiceclone::writer::Request {
+                prompt: prompt.clone(),
+                mode: if mode.starts_with('d') { voiceclone::writer::Mode::Dialogue } else { voiceclone::writer::Mode::Story },
+                language: args.get(4).cloned().unwrap_or_else(|| "fr".into()),
+                seconds: args.get(5).and_then(|w| w.parse().ok()).unwrap_or(60),
+                tone: voiceclone::writer::Tone::parse(args.get(6).map(String::as_str).unwrap_or("natural")),
+                voices,
+            };
+            println!("{}", voiceclone::writer::generate(&dir, &req, &std::sync::atomic::AtomicBool::new(false), &|part, parts, done| if parts > 1 && done.is_none() { eprintln!("{}", if part == 0 { tr!("plan du texte…", "planning the text…") } else { tr!("partie {} sur {}…", "part {} of {}…", part, parts) }) })?);
+            Ok(())
+        }
+        Some("transcribe") => {
+            let Some(file) = args.get(2) else {
+                return Err(tr!("usage : voiceclone-server transcribe <fichier.wav> [langue]", "usage: voiceclone-server transcribe <file.wav> [language]"));
+            };
+            let lang = args.get(3).map(String::as_str).unwrap_or("auto");
+            println!("{}", voiceclone::transcribe::transcribe_file(&dir, Path::new(file), lang)?);
+            Ok(())
+        }
         Some("voice-check") => {
             let Some(name) = args.get(2) else {
                 return Err(tr!("usage : voiceclone-server voice-check <nom>", "usage: voiceclone-server voice-check <name>"));

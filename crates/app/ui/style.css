@@ -319,3 +319,34 @@ dialog#ask .row { display: flex; justify-content: flex-end; gap: 10px; }
 .q-issue { color: var(--accent); }
 .q-ok { color: var(--ok); }
 #upd-progress { width: 100%; margin: 8px 0; }
+
+/* Prononciation : une ligne par mot */
+.pron-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr) auto; gap: 8px; align-items: center; }
+.pron-row input { margin: 0; }
+#tr-bar { width: 100%; margin: 8px 0; }
+
+/* Interrupteur Original / Phonetique en haut a droite de l'editeur */
+.head-right { display: flex; align-items: center; gap: 10px; }
+
+/* Assistant d'ecriture : icone dans la barre de balises, fenetre de saisie */
+.tag.write { display: inline-flex; align-items: center; padding: 4px 9px; color: var(--accent); border-color: var(--accent); }
+.tag.write svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.tag.write::before { content: none; }
+dialog#writer { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-card); padding: 20px 22px; width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 40px); box-shadow: 0 24px 70px rgba(0, 0, 0, .5); }
+dialog#writer::backdrop { background: rgba(0, 0, 0, .5); }
+dialog#writer h2 { margin: 0 0 12px; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); }
+dialog#writer label { display: block; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+dialog#writer textarea { width: 100%; resize: vertical; }
+dialog#writer .w-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+dialog#writer input[type=number] { width: 100%; }
+dialog#writer .row.end { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+dialog#writer fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 12px 0 0; padding: 6px 12px 10px; }
+dialog#writer legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+#w-voice-list { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+#w-voice-list label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
+[data-theme="atelier"] dialog#writer { border-radius: 2px; }
+[data-theme="console"] dialog#writer { border-radius: 6px; }
+#wr-bar, #w-bar { width: 100%; margin: 8px 0; }
+@media (max-width: 640px) { dialog#writer .w-grid { grid-template-columns: 1fr; } }
+
+#count { white-space: normal; flex-wrap: wrap; row-gap: 2px; }

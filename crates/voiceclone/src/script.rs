@@ -34,6 +34,11 @@ fn pause_secs(tag: &str) -> Option<R<f32>> {
     })
 }
 
+/// `pause`, `pause 2s`, `Pause 0,5 s`... : balise de pause valide ?
+pub fn is_pause_tag(tag: &str) -> bool {
+    matches!(pause_secs(tag.trim()), Some(Ok(_)))
+}
+
 pub fn parse(text: &str) -> R<Vec<Item>> {
     let mut items = vec![];
     let mut rest = text;

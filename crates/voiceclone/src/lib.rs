@@ -5,11 +5,15 @@ pub mod audio;
 pub mod cli;
 pub mod components;
 pub mod engine;
+pub mod export;
 pub mod mcp;
 pub mod models;
+pub mod normalize;
 pub mod quality;
 pub mod script;
 mod store;
+pub mod transcribe;
+pub mod writer;
 pub mod update;
 pub mod voices;
 
@@ -433,6 +437,26 @@ impl App {
         Ok(json!({"samples": rows, "voice_issues": quality::voice_issues(&metrics)}))
     }
 
+    /// Transcrit l'echantillon `sample_id` avec Whisper (installe a part) et enregistre le texte comme sa transcription.
+    pub fn transcribe_sample(&self, sample_id: i64) -> R<String> {
+        let (path, language) = {
+            let store = self.store.lock().unwrap();
+            let profiles = store.list_profiles()?;
+            let mut found = None;
+            for p in profiles.as_array().into_iter().flatten() {
+                let pid = p["id"].as_i64().unwrap_or(0);
+                if let Some(s) = store.samples(pid)?.into_iter().find(|s| s.id == sample_id) {
+                    found = Some((s.audio, p["language"].as_str().unwrap_or("auto").to_string()));
+                    break;
+                }
+            }
+            found.ok_or_else(|| tr!("échantillon introuvable", "sample not found"))?
+        };
+        let text = transcribe::transcribe(&self.dir, &audio::read_wav_24k(Path::new(&path))?, transcribe::lang_code(&language))?;
+        self.set_sample_text(sample_id, &text)?;
+        Ok(text)
+    }
+
     pub fn list_samples(&self, profile_id: i64) -> R<Value> {
         let samples = self.store.lock().unwrap().samples(profile_id)?;
         Ok(Value::Array(
@@ -477,6 +501,86 @@ impl App {
                 n += 1;
             }
         }
+    }
+
+    /// Version phonetique du texte (francais seulement) : `None` si la langue n'est pas geree.
+    pub fn phoneticize(&self, text: &str, language: &str) -> Option<String> {
+        let code = transcribe::lang_code(&cli::language(language).unwrap_or_default());
+        (code == "fr").then(|| normalize::phonetic_fr(text, &self.pronunciations()))
+    }
+
+    // ------------------------------------------------------------ prononciation
+    /// Dictionnaire de prononciation de l'utilisateur : (ecrit, dit).
+    pub fn pronunciations(&self) -> Vec<(String, String)> {
+        let raw = self.store.lock().unwrap().setting("pronunciations").unwrap_or_default();
+        serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|e| Some((e["from"].as_str()?.to_string(), e["to"].as_str()?.to_string()))).collect()))
+            .unwrap_or_default()
+    }
+
+    pub fn set_pronunciations(&self, entries: &[(String, String)]) -> R<()> {
+        if entries.len() > 300 {
+            return Err(tr!("300 entrées au plus", "300 entries at most"));
+        }
+        let mut clean = vec![];
+        for (from, to) in entries {
+            let (from, to) = (from.trim(), to.trim());
+            if from.is_empty() {
+                continue;
+            }
+            if from.chars().count() > 60 || to.chars().count() > 200 || from.chars().chain(to.chars()).any(char::is_control) {
+                return Err(tr!("entrée invalide : « {} »", "invalid entry: \"{}\"", from));
+            }
+            clean.push(json!({"from": from, "to": to}));
+        }
+        self.store.lock().unwrap().set_setting("pronunciations", &Value::Array(clean).to_string())
+    }
+
+    /// Nombres ecrits en toutes lettres avant la synthese (oui par defaut).
+    pub fn numbers_words(&self) -> bool {
+        self.store.lock().unwrap().setting("numbers_words").as_deref() != Some("0")
+    }
+
+    pub fn set_numbers_words(&self, on: bool) -> R<()> {
+        self.store.lock().unwrap().set_setting("numbers_words", if on { "1" } else { "0" })
+    }
+
+    // ------------------------------------------------------------ export pour le montage
+    fn timeline_of(&self, id: i64) -> R<Vec<export::Cue>> {
+        let json = self.store.lock().unwrap().timeline(id)?.ok_or_else(|| tr!("cette génération n'a pas de chronologie (créée avant cette fonction)", "this generation has no timeline (made before this feature)"))?;
+        export::from_json(&json)
+    }
+
+    /// Ecrit les sous-titres `.srt` de la generation vers `dest` (extension completee). Retourne le chemin ecrit.
+    pub fn export_srt_to(&self, id: i64, dest: &Path) -> R<PathBuf> {
+        let cues = self.timeline_of(id)?;
+        let mut dest = dest.to_path_buf();
+        if !dest.extension().is_some_and(|x| x.eq_ignore_ascii_case("srt")) {
+            let mut name = dest.file_name().ok_or_else(|| tr!("nom de fichier vide", "empty file name"))?.to_os_string();
+            name.push(".srt");
+            dest.set_file_name(name);
+        }
+        // BOM : certains logiciels de montage lisent sinon le fichier en ANSI.
+        fs::write(&dest, format!("\u{feff}{}", export::srt(&cues))).map_err(|x| format!("{} : {x}", dest.display()))?;
+        Ok(dest)
+    }
+
+    /// Ecrit dans `dir` une piste WAV par voix (meme duree que l'audio, silence quand elle ne parle pas) et les
+    /// sous-titres. Retourne les fichiers crees.
+    pub fn export_stems_to(&self, id: i64, dir: &Path) -> R<Vec<PathBuf>> {
+        let cues = self.timeline_of(id)?;
+        let pcm = audio::read_wav_24k(&self.audio_path("generation", id)?)?;
+        let base = self.export_name(id, "wav")?.trim_end_matches(".wav").to_string();
+        fs::create_dir_all(dir).map_err(e)?;
+        let mut made = vec![];
+        for voice in export::voices(&cues) {
+            let path = dir.join(format!("{base}-{}.wav", voices::folder_name(&voice)));
+            audio::write_wav(&path, &export::stem(&pcm, &cues, &voice))?;
+            made.push(path);
+        }
+        made.push(self.export_srt_to(id, &dir.join(&base))?);
+        Ok(made)
     }
 
     /// Active ou desactive l'amelioration (egaliseur + normalisation) d'une generation.
@@ -581,9 +685,11 @@ impl App {
         // Distribution : la voix principale, puis chaque voix appelee par une balise [Nom] (sans tenir compte de la casse).
         enum Step {
             Silence(usize),
-            Say(usize, String),
+            Say(usize, String, String), // voix, texte dit (normalise), texte affiche (d'origine)
         }
         type Cast = Vec<(store::ProfileRef, Vec<store::Sample>)>;
+        let (dict, numbers) = (self.pronunciations(), self.numbers_words());
+        let lang_code = |name: &str| transcribe::lang_code(&cli::language(name).unwrap_or_default());
         let (cast, steps) = {
             let store = self.store.lock().unwrap();
             let main = store.find_profile(profile)?;
@@ -610,14 +716,17 @@ impl App {
                         })?;
                         current = join(&mut cast, store.find_profile(Some(real))?)?;
                     }
-                    Item::Text(t) => steps.extend(audio::split_text(&t, MAX_CHUNK_CHARS).into_iter().map(|c| Step::Say(current, c))),
+                    Item::Text(t) => {
+                        let code = lang_code(lang.unwrap_or(&cast[current].0.language));
+                        steps.extend(audio::split_text(&t, MAX_CHUNK_CHARS).into_iter().map(|c| Step::Say(current, normalize::normalize(&c, &dict, numbers, code), c)));
+                    }
                 }
             }
             (cast, steps)
         };
         // Voix qui parlent vraiment (dans l'ordre) : la generation est rangee sous la premiere ; plusieurs = « multiple ».
         let used: Vec<usize> = steps.iter().fold(vec![], |mut u, s| {
-            if let Step::Say(i, _) = s {
+            if let Step::Say(i, _, _) = s {
                 if !u.contains(i) {
                     u.push(*i);
                 }
@@ -630,6 +739,7 @@ impl App {
 
         let mut pcm = Vec::new();
         let mut warnings: Vec<String> = vec![];
+        let mut timeline: Vec<export::Cue> = vec![];
         {
             let mut rt = self.rt.lock().unwrap();
             let Runtime { engine, voices, device, note } = &mut *rt;
@@ -677,12 +787,14 @@ impl App {
                         pcm.resize(pcm.len() + n, 0.0);
                         spoken = false;
                     }
-                    Step::Say(i, chunk) => {
+                    Step::Say(i, chunk, shown) => {
                         if spoken {
                             pcm.resize(pcm.len() + audio::SR as usize * 3 / 10, 0.0);
                         }
                         let (vp, _) = &cast[*i];
+                        let start = pcm.len();
                         synth_capped(engine, chunk, lang.as_deref().unwrap_or(&vp.language), &voices[&vp.id].1, seed, &mut pcm)?;
+                        timeline.push(export::Cue { voice: vp.name.clone(), start: start as f64 / audio::SR as f64, end: pcm.len() as f64 / audio::SR as f64, text: shown.clone() });
                         spoken = true;
                     }
                 }
@@ -698,6 +810,7 @@ impl App {
         if used.len() > 1 {
             self.store.lock().unwrap().set_multi(id)?;
         }
+        self.store.lock().unwrap().set_timeline(id, &export::to_json(&timeline))?;
         // La generation existe des maintenant dans l'historique ; si la suite echoue on la retire pour ne pas laisser d'orphelin.
         let finish = || -> R<PathBuf> {
             if enhanced {
@@ -802,6 +915,53 @@ mod tests {
         // Un reglage abime dans la base retombe sur « auto » au lieu de passer tel quel au moteur.
         app.store.lock().unwrap().set_setting("fa", "n'importe quoi").unwrap();
         assert_eq!(app.gpu_status()["fa"], "auto");
+        drop(app);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn srt_and_stems_are_exported_from_the_timeline() {
+        let dir = std::env::temp_dir().join(format!("voiceclone-montage-{}", std::process::id()));
+        let app = App::open(dir.clone()).unwrap();
+        let pid = app.create_profile("Zen", "french").unwrap();
+        let wav = dir.join("g.wav");
+        let sr = audio::SR as usize;
+        audio::write_wav(&wav, &vec![0.4f32; sr * 4]).unwrap();
+        let cues = vec![
+            export::Cue { voice: "Zen".into(), start: 0.0, end: 1.5, text: "Bonjour. Ça va ?".into() },
+            export::Cue { voice: "Dore".into(), start: 2.5, end: 4.0, text: "Très bien 3 fois.".into() },
+        ];
+        let id = app.store.lock().unwrap().add_generation(pid, "x", &wav.to_string_lossy(), 4.0, 7).unwrap();
+        assert!(app.export_srt_to(id, &dir.join("a")).is_err(), "pas de chronologie : refus clair");
+        assert_eq!(app.list_generations(5).unwrap()[0]["has_timeline"], false);
+        app.store.lock().unwrap().set_timeline(id, &export::to_json(&cues)).unwrap();
+        assert_eq!(app.list_generations(5).unwrap()[0]["has_timeline"], true);
+
+        let srt = app.export_srt_to(id, &dir.join("sous-titres")).unwrap();
+        assert_eq!(srt.file_name().unwrap(), "sous-titres.srt");
+        let text = fs::read_to_string(&srt).unwrap();
+        assert!(text.starts_with('\u{feff}') && text.contains("Très bien 3 fois.") && text.contains("00:00:02,500 --> 00:00:04,000"), "{text}");
+
+        let made = app.export_stems_to(id, &dir.join("pistes")).unwrap();
+        assert_eq!(made.len(), 3, "{made:?}"); // une piste par voix + les sous-titres
+        let zen = audio::read_wav_24k(made.iter().find(|p| p.to_string_lossy().contains("-Zen.wav")).unwrap()).unwrap();
+        assert_eq!(zen.len(), sr * 4);
+        assert!(zen[sr * 2..].iter().all(|&x| x.abs() < 0.001) && zen[..sr].iter().all(|&x| x.abs() > 0.3));
+        drop(app);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pronunciation_settings_round_trip_and_are_validated() {
+        let dir = std::env::temp_dir().join(format!("voiceclone-pron-{}", std::process::id()));
+        let app = App::open(dir.clone()).unwrap();
+        assert!(app.pronunciations().is_empty() && app.numbers_words());
+        app.set_pronunciations(&[("RTX".into(), "R T X".into()), ("  ".into(), "ignoré".into())]).unwrap();
+        assert_eq!(app.pronunciations(), vec![("RTX".to_string(), "R T X".to_string())]);
+        assert!(app.set_pronunciations(&[("a".repeat(61), "x".into())]).is_err());
+        assert!(app.set_pronunciations(&[("a\nb".into(), "x".into())]).is_err());
+        app.set_numbers_words(false).unwrap();
+        assert!(!app.numbers_words());
         drop(app);
         let _ = fs::remove_dir_all(dir);
     }

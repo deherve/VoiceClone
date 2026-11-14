@@ -19,6 +19,7 @@ pub mod transcribe;
 pub mod writer;
 pub mod update;
 pub mod voices;
+pub mod zonos;
 
 use engine::{Engine, Voice};
 use serde_json::{json, Value};
@@ -42,7 +43,18 @@ fn sample_secs(path: &str) -> f64 {
 
 /// Synthetise `text` ; si le resultat depasse `MAX_CHUNK_SEC`, le coupe en deux et regenere chaque moitie.
 fn synth_capped(engine: &Engine, text: &str, lang: &str, voice: &Voice, seed: i64, out: &mut Vec<f32>) -> R<()> {
-    let pcm = engine.synth(text, lang, voice, seed)?;
+    let mut pcm = engine.synth(text, lang, voice, seed)?;
+    // Un modele qui n'emet pas la fin de parole atteint la borne de duree : on retente avec d'autres graines, on garde le plus court.
+    let cap = (engine::max_secs(text) * audio::SR as f64) as usize;
+    for k in 1..=2 {
+        if pcm.len() * 100 < cap * 97 {
+            break;
+        }
+        let again = engine.synth(text, lang, voice, seed + k)?;
+        if again.len() < pcm.len() {
+            pcm = again;
+        }
+    }
     if pcm.len() > MAX_CHUNK_SEC * audio::SR as usize {
         let parts = audio::halve(text);
         if parts.len() > 1 {
@@ -105,6 +117,7 @@ pub struct App {
     // Dossier des audios imposé (VOICECLONE_AUDIOS, ou essais) ; sinon `Audios\` a cote du programme.
     audios_override: Option<PathBuf>,
     voices_cache: OnceLock<PathBuf>, // dossier Voix : la sonde d'ecriture n'est faite qu'une fois
+    zonos: Mutex<Option<zonos::Server>>, // BANC D'ESSAI : serveur Zonos 3 (lance a la demande)
 }
 
 fn busy() -> String {
@@ -131,6 +144,7 @@ impl App {
             component_cancel: AtomicBool::new(false),
             audios_override: std::env::var_os("VOICECLONE_AUDIOS").map(PathBuf::from),
             voices_cache: OnceLock::new(),
+            zonos: Mutex::new(None),
         };
         app.seed_bundled_voices(); // la voix de Zen livree avec l'archive, au premier lancement
         Ok(app)
@@ -217,12 +231,16 @@ impl App {
                     "loaded": loaded.as_deref() == Some(file) || (codec && loaded.is_some())})
             })
             .collect();
-        json!({"models": list, "dir": dir, "loaded": loaded.is_some(), "source": models::REPO})
+        let zlist = models::ZONOS.iter().map(|&(file, label_fr, label_en, mb, core)| {
+            json!({"file": file, "label": if i18n::is_en() { label_en } else { label_fr }, "size_mb": mb, "codec": false, "engine": "zonos", "core": core,
+                "downloaded": dir.join(file).exists(), "downloading": downloading.contains_key(file), "active": false, "loaded": false})
+        });
+        json!({"models": list.into_iter().chain(zlist).collect::<Vec<_>>(), "dir": dir, "loaded": loaded.is_some(), "source": models::REPO})
     }
 
     /// Le prochain `speak` chargera ce modele a la place de l'ancien.
     pub fn set_talker(&self, file: &str) -> R<()> {
-        if !models::is_known(file) || file == models::CODEC {
+        if !models::is_known(file) || file == models::CODEC || file.starts_with("zonos/") {
             return Err(tr!("modèle inconnu : {}", "unknown model: {}", file));
         }
         if !self.models_dir().join(file).exists() {
@@ -233,9 +251,7 @@ impl App {
 
     /// Telecharge un modele du catalogue (bloquant). `progress(octets recus, total)`.
     pub fn download_model(&self, file: &str, progress: &dyn Fn(u64, u64)) -> R<()> {
-        if !models::is_known(file) {
-            return Err(tr!("modèle inconnu : {}", "unknown model: {}", file));
-        }
+        let url = models::url(file).ok_or_else(|| tr!("modèle inconnu : {}", "unknown model: {}", file))?;
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut d = self.downloads.lock().unwrap();
@@ -244,7 +260,7 @@ impl App {
             }
             d.insert(file.into(), cancel.clone());
         }
-        let r = models::download(&format!("{}{file}", models::REPO), &self.models_dir().join(file), &cancel, progress);
+        let r = models::download(&url, &self.models_dir().join(file), &cancel, progress);
         self.downloads.lock().unwrap().remove(file);
         r
     }
@@ -272,7 +288,58 @@ impl App {
         rt.engine = None;
         rt.device = None;
         rt.note = None;
+        *self.zonos.lock().unwrap_or_else(PoisonError::into_inner) = None;
         Ok(())
+    }
+
+    /// Moteur de synthese choisi (BANC D'ESSAI) : `Some` si Zonos 3 est actif.
+    fn zonos_config(&self) -> Option<zonos::Config> {
+        let st = self.store.lock().unwrap();
+        (st.setting("engine").as_deref() == Some("zonos")).then(|| {
+            let d = zonos::Config::default();
+            zonos::Config {
+                passes: st.setting("z_passes").and_then(|v| v.parse().ok()).map_or(d.passes, |n: u32| n.clamp(1, 8)),
+                reference: st.setting("z_ref").map_or(d.reference, |v| v == "1"),
+                expressive: st.setting("z_expr").map_or(d.expressive, |v| v == "1"),
+            }
+        })
+    }
+
+    pub fn engine_settings(&self) -> Value {
+        let c = self.zonos_config();
+        let d = zonos::Config::default();
+        let st = self.store.lock().unwrap();
+        let dir = self.models_dir();
+        let files: Vec<Value> = models::ZONOS.iter().map(|&(f, _, _, mb, core)| json!({"file": f, "size_mb": mb, "core": core, "present": dir.join(f).is_file()})).collect();
+        json!({"engine": if c.is_some() { "zonos" } else { "qwen" }, "available": zonos::home().is_some(), "files": files,
+               "home": zonos::home().map(|h| h.to_string_lossy().into_owned()),
+               "passes": c.as_ref().map_or_else(|| st.setting("z_passes").and_then(|v| v.parse().ok()).unwrap_or(d.passes), |c| c.passes),
+               "reference": c.as_ref().map_or_else(|| st.setting("z_ref").map_or(d.reference, |v| v == "1"), |c| c.reference),
+               "expressive": c.as_ref().map_or_else(|| st.setting("z_expr").map_or(d.expressive, |v| v == "1"), |c| c.expressive)})
+    }
+
+    pub fn set_engine_settings(&self, engine: &str, passes: u32, reference: bool, expressive: bool) -> R<()> {
+        if engine != "qwen" && engine != "zonos" {
+            return Err(tr!("moteur inconnu", "unknown engine"));
+        }
+        if engine == "zonos" && zonos::home().is_none() {
+            return Err(tr!("le moteur Zonos 3 (dossier « zonos » à côté du programme) est absent", "the Zonos 3 engine (\"zonos\" folder next to the program) is missing"));
+        }
+        if engine == "zonos" && !models::ZONOS.iter().filter(|m| m.4).all(|m| self.models_dir().join(m.0).is_file()) {
+            return Err(tr!("téléchargez d'abord les modèles Zonos 3 (Paramètres > Modèles)", "download the Zonos 3 models first (Settings > Models)"));
+        }
+        if engine == "zonos" && reference && !models::ZONOS.iter().filter(|m| !m.4).all(|m| self.models_dir().join(m.0).is_file()) {
+            return Err(tr!("le clonage de référence demande deux modèles supplémentaires (Paramètres > Modèles)", "reference cloning needs two more models (Settings > Models)"));
+        }
+        {
+            let st = self.store.lock().unwrap();
+            st.set_setting("engine", engine)?;
+            st.set_setting("z_passes", &passes.clamp(1, 8).to_string())?;
+            st.set_setting("z_ref", if reference { "1" } else { "0" })?;
+            st.set_setting("z_expr", if expressive { "1" } else { "0" })?;
+        }
+        // Un changement de mode de voix ou de moteur libere l'autre moteur (VRAM) ; le bon est relance au prochain speak.
+        self.unload().or_else(|_| Ok(()))
     }
 
     // ---------------------------------------------------------------- carte graphique
@@ -369,6 +436,9 @@ impl App {
         }
         // Le moteur garde le fichier ouvert : on le decharge s'il s'en sert.
         let mut rt = self.try_rt().map_err(|_| busy())?;
+        if file.starts_with("zonos/") {
+            *self.zonos.lock().unwrap_or_else(PoisonError::into_inner) = None; // le serveur garde les fichiers ouverts
+        }
         if rt.engine.as_ref().is_some_and(|(f, _)| f == file || file == models::CODEC) {
             rt.voices.clear();
             rt.engine = None;
@@ -776,7 +846,61 @@ impl App {
         let mut pcm = Vec::new();
         let mut warnings: Vec<String> = vec![];
         let mut timeline: Vec<export::Cue> = vec![];
+        let zonos_cfg = self.zonos_config();
+        let jobs: Vec<usize> = steps.iter().enumerate().filter_map(|(k, s)| matches!(s, Step::Say(..)).then_some(k)).collect();
+        let pieces: Vec<std::sync::Mutex<Option<R<Vec<f32>>>>> = steps.iter().map(|_| std::sync::Mutex::new(None)).collect();
         {
+          if let Some(zcfg) = &zonos_cfg {
+            {
+                // Zonos et Qwen ne partagent pas la memoire video : on libere Qwen.
+                let mut rt = self.rt.lock().unwrap_or_else(PoisonError::into_inner);
+                rt.voices.clear();
+                rt.engine = None;
+                rt.device = None;
+                rt.note = None;
+            }
+            let mut zs = self.zonos.lock().unwrap_or_else(PoisonError::into_inner);
+            if zs.is_none() {
+                let home = zonos::home().ok_or_else(|| tr!("Zonos 3 n'est pas installé", "Zonos 3 is not installed"))?;
+                *zs = Some(zonos::Server::start(&home, &self.models_dir().join("zonos"), &self.dir.join("zonos-server.log"))?);
+            }
+            let srv = zs.as_mut().unwrap();
+            if zcfg.passes > 1 && transcribe::status(&self.dir)["installed"] != true {
+                warnings.push(tr!("vérification des mots impossible : Whisper n'est pas installé (Paramètres > Modèles)", "word check unavailable: Whisper is not installed (Settings > Models)"));
+            }
+            let mut ids: Vec<String> = vec![];
+            for (vp, samples) in &cast {
+                // Echantillons bout a bout, 30 s au plus (l'empreinte de voix n'en demande pas davantage).
+                let mut reference = Vec::new();
+                for s in samples {
+                    if reference.len() >= 30 * audio::SR as usize {
+                        break;
+                    }
+                    reference.extend(audio::read_wav_24k(Path::new(&s.audio))?);
+                    reference.resize(reference.len() + audio::SR as usize * 3 / 10, 0.0);
+                }
+                reference.truncate(30 * audio::SR as usize);
+                let mut wav = std::io::Cursor::new(Vec::new());
+                {
+                    let spec = hound::WavSpec { channels: 1, sample_rate: audio::SR, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+                    let mut w = hound::WavWriter::new(&mut wav, spec).map_err(e)?;
+                    for x in &reference {
+                        w.write_sample((x.clamp(-1.0, 1.0) * 32767.0) as i16).map_err(e)?;
+                    }
+                    w.finalize().map_err(e)?;
+                }
+                let sig = format!("{}|{}|{}", vp.id, samples.iter().map(|s| s.id.to_string()).collect::<Vec<_>>().join(","), zcfg.reference);
+                ids.push(srv.speaker(&sig, &vp.name, wav.get_ref())?);
+            }
+            for &k in &jobs {
+                let Step::Say(i, chunk, _) = &steps[k] else { continue };
+                let code = lang_code(lang.as_deref().unwrap_or(&cast[*i].0.language));
+                let check = |pcm: &[f32]| transcribe::transcribe(&self.dir, pcm, code).ok();
+                let (mut pcm, _, _) = srv.synth(zcfg, chunk, code, &ids[*i], seed, &check)?;
+                audio::trim_silence(&mut pcm, 50);
+                *pieces[k].lock().unwrap() = Some(Ok(pcm));
+            }
+          } else {
             let mut rt = self.rt.lock().unwrap_or_else(PoisonError::into_inner);
             let Runtime { engine, voices, device, note } = &mut *rt;
             let talker = self.talker();
@@ -817,9 +941,7 @@ impl App {
                 }
             }
             // Syntheses des morceaux, plusieurs a la fois (le moteur les calcule ensemble) puis assemblage dans l'ordre.
-            let jobs: Vec<usize> = steps.iter().enumerate().filter_map(|(k, s)| matches!(s, Step::Say(..)).then_some(k)).collect();
             let workers = engine.batch().min(jobs.len()).max(1);
-            let pieces: Vec<std::sync::Mutex<Option<R<Vec<f32>>>>> = steps.iter().map(|_| std::sync::Mutex::new(None)).collect();
             let next = std::sync::atomic::AtomicUsize::new(0);
             let failed = AtomicBool::new(false); // un morceau a echoue : inutile de calculer les suivants
             std::thread::scope(|scope| {
@@ -841,6 +963,7 @@ impl App {
                     });
                 }
             });
+          }
             // Memoire : une seule reservation pour tout l'audio (une heure = 345 Mo ; sans cela, les agrandissements successifs triplent le pic).
             let total: usize = steps.iter().enumerate().map(|(k, st)| match st {
                 Step::Silence(n) => *n,
@@ -882,6 +1005,13 @@ impl App {
                 self.store.lock().unwrap().set_multi(id)?;
             }
             self.store.lock().unwrap().set_timeline(id, &export::to_json(&timeline))?;
+            let label = if zonos_cfg.is_some() {
+                "Zonos 3".to_string()
+            } else {
+                let talker = self.talker(); // hors du verrou de la base (talker() le prend aussi)
+                models::CATALOG.iter().find(|m| m.0 == talker).map_or("Qwen3-TTS", |m| m.1.split(" (").next().unwrap_or(m.1)).to_string()
+            };
+            self.store.lock().unwrap().set_engine(id, &label)?;
             if enhanced {
                 self.set_enhanced(id, true)?;
             }

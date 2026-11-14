@@ -82,7 +82,16 @@ impl Store {
         if !timeline {
             c.execute("ALTER TABLE generations ADD COLUMN timeline TEXT", []).map_err(e)?;
         }
+        // Migration : moteur qui a produit la generation (Qwen3-TTS, Zonos 3...) ; vide = anciennes generations (Qwen3-TTS).
+        let engine = c.prepare("SELECT 1 FROM pragma_table_info('generations') WHERE name='engine'").and_then(|mut s| s.exists([])).map_err(e)?;
+        if !engine {
+            c.execute("ALTER TABLE generations ADD COLUMN engine TEXT", []).map_err(e)?;
+        }
         Ok(Store(c))
+    }
+
+    pub fn set_engine(&self, id: i64, name: &str) -> R<()> {
+        self.0.execute("UPDATE generations SET engine=?2 WHERE id=?1", params![id, name]).map(|_| ()).map_err(e)
     }
 
     pub fn set_timeline(&self, id: i64, json: &str) -> R<()> {
@@ -219,7 +228,7 @@ impl Store {
     pub fn list_generations(&self, limit: i64) -> R<Value> {
         let mut st = self.0
             .prepare(
-                "SELECT g.id,p.name,g.text,COALESCE(g.enhanced_path,g.audio_path),g.duration,g.seed,g.created_at,g.enhanced_path IS NOT NULL,g.heard,g.multi,g.timeline IS NOT NULL FROM generations g
+                "SELECT g.id,p.name,g.text,COALESCE(g.enhanced_path,g.audio_path),g.duration,g.seed,g.created_at,g.enhanced_path IS NOT NULL,g.heard,g.multi,g.timeline IS NOT NULL,g.engine FROM generations g
                  LEFT JOIN profiles p ON p.id=g.profile_id ORDER BY g.id DESC LIMIT ?1",
             )
             .map_err(e)?;
@@ -227,7 +236,8 @@ impl Store {
             .query_map(params![limit.clamp(1, 500)], |r| {
                 Ok(json!({"id": r.get::<_, i64>(0)?, "profile": r.get::<_, Option<String>>(1)?, "text": r.get::<_, String>(2)?,
                     "path": r.get::<_, String>(3)?, "duration_sec": r.get::<_, f64>(4)?, "seed": r.get::<_, i64>(5)?, "created_at": r.get::<_, String>(6)?,
-                    "enhanced": r.get::<_, bool>(7)?, "heard": r.get::<_, bool>(8)?, "multi": r.get::<_, bool>(9)?, "has_timeline": r.get::<_, bool>(10)?}))
+                    "enhanced": r.get::<_, bool>(7)?, "heard": r.get::<_, bool>(8)?, "multi": r.get::<_, bool>(9)?, "has_timeline": r.get::<_, bool>(10)?,
+                    "engine": r.get::<_, Option<String>>(11)?.unwrap_or_else(|| "Qwen3-TTS".into())}))
             })
             .map_err(e)?;
         Ok(Value::Array(rows.collect::<Result<_, _>>().map_err(e)?))

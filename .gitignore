@@ -20,3 +20,6 @@
 /vendor/qwentts/examples/*.spk
 /vendor/qwentts/examples/*.rvq
 /vendor/qwentts/examples/freeman.*
+
+# Sources de Zonos 3 (build-zonos.cmd) ; le serveur compile va dans release-assets\zonos
+/vendor/zonos3/

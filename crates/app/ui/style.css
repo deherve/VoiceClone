@@ -1,4 +1,4 @@
-﻿/* Themes : « Nocturne » (defaut, ci-dessous), puis Atelier, Console et Conversation en fin de fichier.
+/* Themes : « Nocturne » (defaut, ci-dessous), puis Atelier, Console et Conversation en fin de fichier.
    Polices systeme : l'application ne charge rien depuis le web. */
 :root {
   --bg: #0f1217; --panel: #141922; --raised: #1d2330; --border: #232a36; --line: #2c3544;
@@ -277,6 +277,7 @@ progress { width: 160px; accent-color: var(--accent); }
 .hl-bad { color: var(--danger); text-decoration: underline wavy; }
 [data-theme="conversation"] .editor { flex: none; min-height: 0; }
 
+.voice.engine { color: var(--muted); border-color: var(--muted); background: transparent; font-weight: 500; }
 .voice.multi { color: var(--text); border-color: var(--muted); background: transparent; }
 [data-theme="atelier"] .voice.multi { background: transparent; }
 
@@ -347,3 +348,6 @@ dialog#writer legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
 @media (max-width: 640px) { dialog#writer .w-grid { grid-template-columns: 1fr; } }
 
 #count { white-space: normal; flex-wrap: wrap; row-gap: 2px; }
+
+.engine-row { margin-bottom: 12px; }
+#engine-pick { margin-bottom: 0; }

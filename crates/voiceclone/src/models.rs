@@ -11,14 +11,34 @@ pub const CATALOG: &[(&str, &str, &str, u32)] = &[
     (DEFAULT_TALKER, "Qwen3-TTS 1.7B · Q8 (recommandé)", "Qwen3-TTS 1.7B · Q8 (recommended)", 1983),
     ("qwen-talker-1.7b-base-BF16.gguf", "Qwen3-TTS 1.7B · BF16 (moins compressé, plus lourd)", "Qwen3-TTS 1.7B · BF16 (less compressed, heavier)", 3697),
     ("qwen-talker-1.7b-base-Q4_K_M.gguf", "Qwen3-TTS 1.7B · Q4 (plus léger)", "Qwen3-TTS 1.7B · Q4 (lighter)", 1163),
-    ("qwen-talker-0.6b-base-Q8_0.gguf", "Qwen3-TTS 0.6B · Q8 (plus rapide)", "Qwen3-TTS 0.6B · Q8 (faster)", 947),
-    ("qwen-talker-0.6b-base-Q4_K_M.gguf", "Qwen3-TTS 0.6B · Q4 (le plus léger)", "Qwen3-TTS 0.6B · Q4 (lightest)", 600),
     (CODEC, "Codec audio 12 Hz (obligatoire)", "12 Hz audio codec (required)", 278),
+];
+
+/// Modeles Zonos 3-Mini (Zyphra, Apache-2.0), dans `<modeles>\zonos\`. Le serveur retrouve lui-meme les fichiers voisins du
+/// modele principal. (identifiant `zonos/<fichier>`, libelle fr, libelle en, taille en Mo, indispensable)
+pub const ZONOS_REPO: &str = "https://huggingface.co/Zyphra/ZONOS3-Mini/resolve/main/gguf/";
+pub const ZONOS: &[(&str, &str, &str, u32, bool)] = &[
+    ("zonos/backbone-ptq.gguf", "Zonos 3-Mini · modèle de voix", "Zonos 3-Mini · voice model", 663, true),
+    ("zonos/zac.gguf", "Zonos 3-Mini · décodeur audio (qualité)", "Zonos 3-Mini · audio decoder (quality)", 2200, true),
+    ("zonos/zac-keep2.gguf", "Zonos 3-Mini · décodeur audio (rapide)", "Zonos 3-Mini · audio decoder (fast)", 452, true),
+    ("zonos/spk-encoder.gguf", "Zonos 3-Mini · empreinte de voix", "Zonos 3-Mini · voice embedding", 45, true),
+    ("zonos/steer.gguf", "Zonos 3-Mini · expressivité", "Zonos 3-Mini · expressiveness", 1, true),
+    ("zonos/zac-encoder.gguf", "Zonos 3-Mini · clonage de référence (1/2, facultatif)", "Zonos 3-Mini · reference cloning (1/2, optional)", 4035, false),
+    ("zonos/ssl-teacher.gguf", "Zonos 3-Mini · clonage de référence (2/2, facultatif)", "Zonos 3-Mini · reference cloning (2/2, optional)", 1549, false),
 ];
 
 /// Seuls les noms du catalogue sont acceptes : pas de chemin libre venant de l'interface.
 pub fn is_known(file: &str) -> bool {
-    CATALOG.iter().any(|m| m.0 == file)
+    CATALOG.iter().any(|m| m.0 == file) || ZONOS.iter().any(|m| m.0 == file)
+}
+
+/// Adresse de telechargement d'un modele du catalogue.
+pub fn url(file: &str) -> Option<String> {
+    match file.strip_prefix("zonos/") {
+        Some(f) if is_known(file) => Some(format!("{ZONOS_REPO}{f}")),
+        None if is_known(file) => Some(format!("{REPO}{file}")),
+        _ => None,
+    }
 }
 
 /// Telecharge `url` vers `dest` en passant par `dest.part` ; reprend un `.part` existant.
@@ -26,6 +46,9 @@ pub fn is_known(file: &str) -> bool {
 // Hugging Face si des fichiers corrompus apparaissent.
 pub fn download(url: &str, dest: &Path, cancel: &AtomicBool, progress: &dyn Fn(u64, u64)) -> R<()> {
     let part = PathBuf::from(format!("{}.part", dest.display()));
+    if let Some(d) = dest.parent() {
+        fs::create_dir_all(d).map_err(e)?;
+    }
     let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
     // Delais : sans eux, une connexion figee bloque le telechargement (et son annulation) indefiniment.
     let agent = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(20)).timeout_read(std::time::Duration::from_secs(60)).build();
@@ -76,6 +99,13 @@ mod tests {
     use std::sync::{atomic::AtomicUsize, Arc};
 
     #[test]
+    fn urls_follow_the_catalog() {
+        assert_eq!(url("zonos/steer.gguf").unwrap(), "https://huggingface.co/Zyphra/ZONOS3-Mini/resolve/main/gguf/steer.gguf");
+        assert!(url(DEFAULT_TALKER).unwrap().starts_with(REPO));
+        assert!(url("zonos/../x.gguf").is_none() && url("autre.gguf").is_none());
+    }
+
+    #[test]
     fn download_full_resume_cancel() {
         // Petit serveur local qui gere Range, comme le CDN de Hugging Face.
         let data: Arc<Vec<u8>> = Arc::new((0..3_000_000u32).map(|i| (i % 251) as u8).collect());
@@ -98,8 +128,8 @@ mod tests {
             }
         });
         let dir = std::env::temp_dir().join(format!("voiceclone-dl-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let (dest, go) = (dir.join("m.gguf"), AtomicBool::new(false));
+        // Sous-dossier volontairement absent : le telechargement le cree (modeles Zonos dans `zonos\`).
+        let (dest, go) = (dir.join("zonos").join("m.gguf"), AtomicBool::new(false));
         let part = PathBuf::from(format!("{}.part", dest.display()));
 
         let last = std::sync::Mutex::new((0, 0));

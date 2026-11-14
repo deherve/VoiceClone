@@ -76,6 +76,15 @@
     <p class="hint" id="models-hint"></p>
     <ul id="model-list" class="list"></ul>
     <p id="models-status" class="status" role="status"></p>
+    <h2>Zonos 3-Mini (essai · trial)</h2>
+    <p class="hint" id="z-state"></p>
+    <label for="z-passes">Passes de vérification par phrase (1 = aucune) · Check passes per sentence</label>
+    <select id="z-passes"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option><option>8</option></select>
+    <p class="hint">Chaque phrase est générée jusqu'à N fois ; Whisper relit chaque version et on garde celle qui a le moins d'erreurs de mots. · Each sentence is generated up to N times; Whisper listens to each and the version with the fewest word errors is kept.</p>
+    <label class="check"><input type="checkbox" id="z-expr"> Expressif (hésitations, ton conversationnel) · Expressive (hesitations, conversational tone)</label>
+    <label class="check"><input type="checkbox" id="z-ref"> Clonage par audio de référence (plus lourd, plus fidèle) · Reference-audio cloning (heavier, closer)</label>
+    <div class="row"><button type="button" id="z-save">Appliquer · Apply</button></div>
+    <p id="z-status" class="status" role="status"></p>
 
     <h2 id="h-transcribe" data-i18n="tr.title"></h2>
     <p class="hint" data-i18n="tr.hint"></p>
@@ -243,6 +252,7 @@
           </div>
         </div>
       </div>
+      <div class="row engine-row"><label for="engine-pick" class="voice-line">Modèle · Model</label><select id="engine-pick"></select></div>
       <div id="tags" class="tags" role="toolbar" data-i18n-attr="aria-label:tags.aria"></div>
       <div class="editor"><textarea id="text" data-i18n-attr="placeholder:compose.placeholder" spellcheck="false"></textarea><div id="hl" class="hl" aria-hidden="true"><div id="hl-in"></div></div></div>
       <div class="row foot">

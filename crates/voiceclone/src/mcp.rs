@@ -152,7 +152,7 @@ mod tests {
         app.delete_profile(id).unwrap();
         // Modeles : rien d'installe dans ce dossier de test, choix et noms hors catalogue refuses.
         let m = app.models();
-        assert_eq!(m["models"].as_array().unwrap().len(), crate::models::CATALOG.len());
+        assert_eq!(m["models"].as_array().unwrap().len(), crate::models::CATALOG.len() + crate::models::ZONOS.len());
         assert!(m["models"][0]["active"] == true && m["models"][0]["downloaded"] == false && m["loaded"] == false);
         assert!(app.set_talker(crate::models::DEFAULT_TALKER).is_err(), "modèle non téléchargé refusé");
         assert!(app.set_talker("..\\x.gguf").is_err() && app.delete_model("..\\voiceclone.db").is_err());

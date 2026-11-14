@@ -455,6 +455,17 @@ fn set_pronunciations(app: Core<'_>, entries: Vec<(String, String)>, numbers: bo
     app.set_numbers_words(numbers)
 }
 
+/// BANC D'ESSAI : moteur de synthese (Qwen3-TTS ou Zonos 3).
+#[tauri::command]
+fn engine_settings(app: Core<'_>) -> Value {
+    app.engine_settings()
+}
+
+#[tauri::command]
+fn set_engine_settings(app: Core<'_>, engine: String, passes: u32, reference: bool, expressive: bool) -> R<()> {
+    app.set_engine_settings(&engine, passes, reference, expressive)
+}
+
 /// Montre le fichier d'une generation dans l'Explorateur.
 #[tauri::command]
 fn reveal(app: Core<'_>, id: i64) -> R<()> {
@@ -557,7 +568,7 @@ fn main() {
             mcp_info, profiles, create_profile, delete_profile, samples, add_sample, set_sample_text,
             delete_sample, generations, delete_generation, speak, audio, reveal, waveform, set_enhanced, download,
             connection_info, open_audios_dir, mark_heard, voice_quality, write_estimate, writer_status, writer_install, writer_cancel_install, writer_remove, write_text, write_cancel, download_srt, export_stems, phoneticize, pronunciations, set_pronunciations, transcribe_status, transcribe_install, transcribe_cancel, transcribe_remove, transcribe_sample, voices_info, export_voice, export_all_voices, import_voices, open_voices_dir, delete_all_generations, get_lang, set_lang, app_version, check_update, install_update, update_log, open_release, open_official, components, install_component, cancel_component,
-            models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
+            engine_settings, set_engine_settings, models, gpu, set_gpu, set_model, download_model, cancel_download, delete_model, unload_model, open_models_dir
         ])
         .run(tauri::generate_context!())
         .expect("lancement de VoiceClone");

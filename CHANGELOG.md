@@ -6,6 +6,20 @@ Each release on GitHub carries the notes of its section below (English, then Fre
 Les versions avancent de 0.0.1 ; après le chiffre 9 on passe à la dizaine suivante : 0.1.8 → 0.1.9 → 0.2.0 → … → 0.9.9 → 1.0.0.
 Chaque release GitHub reprend les notes de sa section ci-dessous (anglais, puis français).
 
+## 0.2.4 - 2026-11-14
+
+**English**
+- **Second engine: Zonos 3-Mini** (Zyphra, local, Vulkan). Settings > Models > Zonos 3-Mini downloads its models (about 3.4 GB; reference cloning from an audio file adds 5.6 GB). The server ships in the archive (folder "zonos"). Each piece is generated up to 4 times with different seeds, Whisper re-reads every candidate and the one with the fewest word errors is kept (needs Whisper); expressive mode (hesitations, conversational tone) is optional.
+- **Model list above the text editor**: every downloaded model (Qwen3-TTS variants and Zonos) can be chosen at generation time, without going through Settings. The library shows which model generated each sound.
+- **Fix, endless generation**: the end of a Qwen generation could wait on a lock it already held. A piece that never ends (the small 0.6B models never stop speaking) is now capped by the text length and retried with other seeds.
+- **Qwen3-TTS 0.6B models removed** (Q8 and Q4, under 1 GB): they caused transcription errors and runaway speech. Files already downloaded are left on disk; the app falls back to the 1.7B Q8.
+
+**Français**
+- **Second moteur : Zonos 3-Mini** (Zyphra, local, Vulkan). Paramètres > Modèles > Zonos 3-Mini télécharge ses modèles (environ 3,4 Go ; le clonage par audio de référence en ajoute 5,6). Le serveur est livré dans l'archive (dossier « zonos »). Chaque morceau est généré jusqu'à 4 fois avec des graines différentes, Whisper relit chaque candidat et celui qui a le moins d'erreurs de mots est gardé (Whisper requis) ; le mode expressif (hésitations, ton conversationnel) est facultatif.
+- **Liste des modèles au-dessus de l'éditeur** : tous les modèles téléchargés (variantes Qwen3-TTS et Zonos) se choisissent au moment de générer, sans passer par les Paramètres. La bibliothèque indique le modèle qui a généré chaque son.
+- **Correction, génération interminable** : la fin d'une génération Qwen pouvait attendre un verrou qu'elle tenait déjà. Un morceau qui ne s'arrête jamais (les petits modèles 0.6B ne cessent pas de parler) est maintenant plafonné d'après la longueur du texte et regénéré avec d'autres graines.
+- **Modèles Qwen3-TTS 0.6B retirés** (Q8 et Q4, moins de 1 Go) : ils provoquaient des erreurs de transcription et des paroles sans fin. Les fichiers déjà téléchargés restent sur le disque ; l'application revient au 1.7B Q8.
+
 ## 0.2.3 - 2026-11-13
 
 **English**

@@ -50,6 +50,7 @@ ENGLISH
 Local voice cloning and audio generation, driven from a window or from Claude Code (MCP).
 - No installation: unzip anywhere and run. The Visual C++ runtimes are included.
 - First launch: Settings > Models: download the synthesis model (about 2 GB) and the audio codec (about 0.3 GB).
+- Optional second engine, Zonos 3-Mini (folder "zonos"): Settings > Models > Zonos 3-Mini downloads its models (about 3.4 GB, plus 5.6 GB for reference cloning); then pick it in the list above the text.
 - Needs Windows 10/11 64-bit and a graphics driver with Vulkan (AMD, NVIDIA, Intel); without one the processor is used, about 4 times slower.
 - Portable mode: create an empty file named "portable" next to the program; your data then stay in the "data" folder instead of %APPDATA%\VoiceClone.
 - MCP connector: http://127.0.0.1:17494/mcp  (tools: speak, list_profiles, list_generations)
@@ -63,6 +64,7 @@ FRANCAIS
 Clonage de voix et generation d'audio en local, depuis une fenetre ou depuis Claude Code (MCP).
 - Aucune installation : decompressez n'importe ou et lancez. Les runtimes Visual C++ sont inclus.
 - Premier lancement : Parametres > Modeles : telechargez le modele de synthese (environ 2 Go) et le codec audio (environ 0,3 Go).
+- Second moteur facultatif, Zonos 3-Mini (dossier "zonos") : Parametres > Modeles > Zonos 3-Mini telecharge ses modeles (environ 3,4 Go, plus 5,6 Go pour le clonage de reference) ; choisissez-le ensuite dans la liste au-dessus du texte.
 - Necessite Windows 10/11 64 bits et un pilote graphique avec Vulkan (AMD, NVIDIA, Intel) ; sans lui, le processeur est utilise, environ 4 fois plus lent.
 - Mode portable : creez un fichier vide nomme "portable" a cote du programme ; vos donnees restent alors dans le dossier "data" au lieu de %APPDATA%\VoiceClone.
 - Connecteur MCP : http://127.0.0.1:17494/mcp  (outils : speak, list_profiles, list_generations)
@@ -93,6 +95,14 @@ function Assemble([string]$name, [string[]]$exes) {
     Copy-Item "$root\vendor\qwentts\LICENSE" "$dir\licences\qwentts.cpp-LICENSE.txt"
     Copy-Item "$root\vendor\qwentts\ggml\LICENSE" "$dir\licences\ggml-LICENSE.txt"
     Copy-Item $voices "$dir\Voix" -Recurse
+    # Moteur Zonos 3 (serveur compile par build-zonos.cmd) : dossier a part, avec ses propres DLL ggml et runtimes Visual C++.
+    # Ses modeles ne sont pas dans l'archive : ils se telechargent depuis Parametres > Modeles.
+    if (-not (Test-Path "$root\release-assets\zonos\zonos3-server.exe")) { throw 'Serveur Zonos 3 absent : lancer build-zonos.cmd.' }
+    Copy-Item "$root\release-assets\zonos" "$dir\zonos" -Recurse
+    Copy-Item $runtimes "$dir\zonos"
+    Move-Item "$dir\zonos\zonos3-LICENSE.txt", "$dir\zonos\zonos3-NOTICE.txt" "$dir\licences"
+    & "$root\scripts\check-deps.ps1" -Dir "$dir\zonos" | Out-Host
+    if ($LASTEXITCODE) { throw "$name : des DLL manquent dans le dossier zonos." }
     Set-Content "$dir\README.txt" $readme -Encoding UTF8
     & "$root\scripts\check-deps.ps1" -Dir $dir | Out-Host
     if ($LASTEXITCODE) { throw "$name : des DLL manquent, l'archive ne serait pas autonome." }

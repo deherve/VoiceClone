@@ -202,6 +202,11 @@ pub fn needs_clamp(description: &str) -> bool {
     !recent.iter().any(|r| d.contains(r))
 }
 
+/// Duree maximale plausible (secondes) de la parole de `text`.
+pub fn max_secs(text: &str) -> f64 {
+    3.0 + text.chars().map(|c| if c as u32 >= 0x3000 { 0.6 } else { 0.16 }).sum::<f64>()
+}
+
 impl Engine {
     /// Charge le modele sur `device` (nom ggml). `use_fa` : attention « flash » ; `clamp` : garde FP16.
     /// Nombre de syntheses que le moteur calcule ensemble (voir `choose_batch`).
@@ -255,6 +260,7 @@ impl Engine {
 
     /// Retourne du PCM mono 24 kHz.
     pub fn synth(&self, text: &str, lang: &str, v: &Voice, seed: i64) -> R<Vec<f32>> {
+        let text_str = text;
         let (text, lang) = (cstr(text)?, cstr(lang)?);
         unsafe {
             let mut p: qt_tts_params = std::mem::zeroed();
@@ -269,6 +275,10 @@ impl Engine {
                 p.ref_codes = v.codes.as_ptr();
                 p.ref_t = v.t;
             }
+            // Garde-fou : un petit modele peut ne jamais emettre la fin de parole et bavarder jusqu'a 2 min. La duree est bornee
+            // d'apres le texte (3 s + 0,16 s par caractere, 0,6 s par caractere CJK ; la parole reelle est a ~0,07 s/car.).
+            let cap = p.max_new_tokens.min((max_secs(text_str) * 12.5).ceil() as i32).max(40);
+            p.max_new_tokens = cap;
             p.seed = seed;
             let mut out: qt_audio = std::mem::zeroed();
             if qt_synthesize(self.0, &p, &mut out) != QT_STATUS_OK {

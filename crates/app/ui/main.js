@@ -779,6 +779,7 @@ async function loadGenerations() {
           g.multi
             ? el('span', { className: 'voice multi', textContent: t('gen.voice', { name: t('gen.multiple') }) })
             : paint(el('span', { className: 'voice vc', textContent: t('gen.voice', { name: g.profile ?? t('gen.voice_deleted') }) }), profiles.find((p) => p.name === g.profile)),
+          el('span', { className: 'voice engine', textContent: g.engine }),
           g.created_at.slice(0, 16)),
         el('div', { className: 'actions' }, seg, folder, dl('wav'), dl('mp3'), ...montageButtons(g, st), del)));
   }));
@@ -981,6 +982,36 @@ function fillTriOptions() {
   }
 }
 
+// Liste des modeles installes (Qwen : un choix par modele telecharge ; Zonos si present), avec le modele actif selectionne.
+async function pickEngine() {
+  const [z, m] = await Promise.all([invoke('engine_settings'), invoke('models')]);
+  const short = (l) => l.split(' (')[0];
+  const opts = m.models.filter((x) => x.downloaded && !x.codec && x.engine !== 'zonos').map((x) => el('option', { value: `qwen:${x.file}`, textContent: short(x.label) }));
+  if (z.available && z.files.filter((f) => f.core).every((f) => f.present)) opts.push(el('option', { value: 'zonos', textContent: 'Zonos 3-Mini' }));
+  const sel = $('engine-pick');
+  sel.replaceChildren(...opts);
+  const active = m.models.find((x) => x.active);
+  sel.value = z.engine === 'zonos' ? 'zonos' : `qwen:${active?.file}`;
+  return z;
+}
+$('engine-pick').onchange = async () => {
+  const z = await invoke('engine_settings');
+  const v = $('engine-pick').value;
+  try {
+    if (v.startsWith('qwen:')) await invoke('set_model', { file: v.slice(5) });
+    await invoke('set_engine_settings', { engine: v.startsWith('qwen:') ? 'qwen' : 'zonos', passes: z.passes, reference: z.reference, expressive: z.expressive });
+  }
+  catch (e) { fail($('status') ?? $('z-status'), e); }
+  await pickEngine(); await loadZonos(); await loadModels().catch(() => {});
+};
+pickEngine().catch(() => {});
+async function loadZonos() {
+  const z = await invoke('engine_settings');
+  $('z-passes').value = String(z.passes); $('z-ref').checked = z.reference; $('z-expr').checked = z.expressive;
+  const ready = z.files.filter((f) => f.core).every((f) => f.present);
+  $('z-state').textContent = !z.available ? 'Moteur Zonos 3 absent (dossier « zonos » à côté du programme) · Zonos 3 engine missing ("zonos" folder next to the program)'
+    : ready ? 'Zonos 3 : OK' : 'Zonos 3 : modèles à télécharger ci-dessous · models to download below';
+}
 async function loadGpu() {
   const st = $('gpu-status');
   const g = await invoke('gpu');
@@ -1069,11 +1100,44 @@ const progress = {}; // fichier -> { done, total } pendant un telechargement
 async function loadModels() {
   const st = $('models-status');
   const m = await invoke('models');
+  const z = await invoke('engine_settings');
   $('models-hint').textContent = t('models.hint', { source: m.source.replace('https://', '').replace('/resolve/main/', '') });
   $('models-dir').textContent = t('mem.folder', { dir: m.dir });
   $('memory-state').textContent = m.loaded ? t('mem.loaded') : t('mem.none');
   $('unload').disabled = !m.loaded;
-  $('model-list').replaceChildren(...m.models.map((x) => {
+  const zrows = (() => {
+    const core = z.files.filter((f) => f.core), ok = z.available && core.every((f) => f.present);
+    const mb = core.reduce((a, f) => a + f.size_mb, 0);
+    const ref = z.files.filter((f) => !f.core);
+    const state = [ok ? (z.engine === 'zonos' ? t('models.state_active') : t('models.state_installed')) : t('models.state_missing'), ref.every((f) => f.present) ? 'clonage de référence · reference cloning : OK' : 'clonage de référence absent · reference cloning missing'].join(' · ');
+    const missing = core.filter((f) => !f.present), busy = m.models.some((x) => x.engine === 'zonos' && x.downloading);
+    const row = el('li', { className: `model${z.engine === 'zonos' ? ' active' : ''}` }, el('div', { className: 'grow' }, el('strong', { textContent: 'Zonos 3-Mini' }), el('span', { className: 'meta', textContent: `${size(mb)} · ${z.available ? state : 'moteur absent · engine missing (dossier « zonos » · "zonos" folder)'}` })));
+    if (z.available && missing.length && !busy) {
+      const b = el('button', { type: 'button', textContent: t('models.download', { size: size(missing.reduce((a, f) => a + f.size_mb, 0)) }) });
+      b.onclick = async () => {
+        for (const f of missing) {
+          progress[f.file] = { done: 0, total: 0 };
+          say(st, t('models.downloading', { label: f.file }));
+          loadModels().catch(() => {});
+          const r = await invoke('download_model', { file: f.file }).then(() => true, (e) => { fail(st, e); return false; });
+          delete progress[f.file];
+          if (!r) break;
+        }
+        await loadModels().catch((e) => fail(st, e));
+      };
+      row.append(b);
+    }
+    if (ok && z.engine !== 'zonos') {
+      const b = el('button', { type: 'button', textContent: t('models.use') });
+      b.onclick = () => invoke('set_engine_settings', { engine: 'zonos', passes: z.passes, reference: z.reference, expressive: z.expressive }).then(() => Promise.all([pickEngine(), loadModels()])).catch((e) => fail(st, e));
+      row.append(b);
+    }
+    return [row];
+  })();
+  const qwen = m.models.filter((x) => x.engine !== 'zonos');
+  const zfiles = m.models.filter((x) => x.engine === 'zonos');
+  const buildRow = (x) => {
+    x = { ...x, active: x.active && z.engine === 'qwen' };
     const state = [x.downloaded ? t(x.active ? 'models.state_active' : 'models.state_installed') : t('models.state_missing'), x.loaded ? t('models.state_loaded') : ''].filter(Boolean).join(' · ');
     const row = el('li', { className: `model${x.active || (x.codec && x.downloaded) ? ' active' : ''}` },
       el('div', { className: 'grow' }, el('strong', { textContent: x.label }), el('span', { className: 'meta', textContent: `${size(x.size_mb)} · ${state}` })));
@@ -1102,7 +1166,7 @@ async function loadModels() {
         await loadModels();
       });
     } else {
-      if (!x.codec && !x.active) act(t('models.use'), async () => { await invoke('set_model', { file: x.file }); await loadModels(); say(st, t('models.use_done', { label: x.label })); });
+      if (!x.codec && !x.active && x.engine !== 'zonos') act(t('models.use'), async () => { await invoke('set_model', { file: x.file }); await invoke('set_engine_settings', { engine: 'qwen', passes: z.passes, reference: z.reference, expressive: z.expressive }); await pickEngine(); await loadModels(); say(st, t('models.use_done', { label: x.label })); });
       act(t('common.delete'), async () => {
         if (!(await ask(t('models.delete_confirm', { label: x.label, size: size(x.size_mb) })))) return;
         await invoke('delete_model', { file: x.file });
@@ -1111,7 +1175,9 @@ async function loadModels() {
       }, 'ghost danger');
     }
     return row;
-  }));
+  };
+  $('model-list').replaceChildren(...qwen.map(buildRow), ...zrows, ...zfiles.map(buildRow));
+  pickEngine().catch(() => {});
   $('unload').onclick = () => invoke('unload_model').then(() => Promise.all([loadModels(), loadGpu()])).then(() => say($('models-status'), t('mem.unloaded')), (e) => fail($('models-status'), e));
 }
 
@@ -1170,6 +1236,13 @@ function loadSettings() {
   loadConnection().catch((e) => fail($('conn-status'), e));
   loadModels().catch((e) => fail($('models-status'), e));
   loadGpu().catch((e) => fail($('gpu-status'), e));
+  loadZonos().catch((e) => fail($('z-status'), e));
+  $('z-save').onclick = async () => {
+    try {
+      await invoke('set_engine_settings', { engine: $('engine-pick').value.startsWith('qwen:') ? 'qwen' : 'zonos', passes: Number($('z-passes').value), reference: $('z-ref').checked, expressive: $('z-expr').checked });
+      await loadZonos(); await pickEngine(); await loadModels(); say($('z-status'), 'OK');
+    } catch (e) { fail($('z-status'), e); }
+  };
   loadComponents().catch((e) => fail($('comp-status'), e));
 }
 
